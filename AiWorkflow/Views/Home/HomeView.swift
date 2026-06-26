@@ -14,7 +14,7 @@ struct HomeView: View {
                     VStack(spacing: 16) {
                         Button {
                             let p = Project(name: "新创作")
-                            store?.upsert(p)
+                            store.upsert(p)
                             topicProjectID = p.id
                         } label: {
                             HStack {
@@ -87,9 +87,10 @@ struct HomeView: View {
             }
             .sheet(isPresented: $settingsSheet) { SettingsView() }
             .onAppear { vm.setup(store: store) }
-            .onChange(of: topicProjectID) { id in
-                // NavigationLink 通过 NavigationStack 自动处理
-            }
         }
     }
+}
+
+extension Project: Hashable {
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
