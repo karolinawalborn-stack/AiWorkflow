@@ -152,4 +152,3 @@ extension AIProviderConfig {
         return "1024x1536" // 默认 fallback
     }
 }
-}
