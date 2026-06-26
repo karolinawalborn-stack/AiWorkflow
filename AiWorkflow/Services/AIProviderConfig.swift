@@ -16,6 +16,11 @@ struct AIProviderConfig: Sendable {
     var imageEndpointPath: String
     var imageModelName: String
 
+    // ── 图片参考图配置 ──
+    var imageReferenceMode: String
+    var referenceImageFieldName: String
+    var imagePromptFieldName: String
+
     // ── 通用 ──
     var token: String
     var customHeaders: [String: String]
@@ -28,7 +33,10 @@ struct AIProviderConfig: Sendable {
         textModelName: "gpt-5.4",
         imageBaseURL: "https://api.lk888.ai",
         imageEndpointPath: "/v1/media/generate",
-        imageModelName: "gpt-image-2"
+        imageModelName: "gpt-image-2",
+        imageReferenceMode: "promptOnlyFallback",
+        referenceImageFieldName: "image",
+        imagePromptFieldName: "prompt"
     )
 
     init(
@@ -38,6 +46,9 @@ struct AIProviderConfig: Sendable {
         imageBaseURL: String? = nil,
         imageEndpointPath: String? = nil,
         imageModelName: String,
+        imageReferenceMode: String = "promptOnlyFallback",
+        referenceImageFieldName: String = "image",
+        imagePromptFieldName: String = "prompt",
         customHeaders: [String: String] = [:],
         timeout: TimeInterval = 120
     ) {
@@ -47,6 +58,9 @@ struct AIProviderConfig: Sendable {
         self.imageBaseURL = imageBaseURL ?? baseURL
         self.imageEndpointPath = imageEndpointPath ?? "/v1/media/generate"
         self.imageModelName = imageModelName
+        self.imageReferenceMode = imageReferenceMode
+        self.referenceImageFieldName = referenceImageFieldName
+        self.imagePromptFieldName = imagePromptFieldName
         self.customHeaders = customHeaders
         self.timeout = timeout
     }
@@ -60,7 +74,10 @@ struct AIProviderConfig: Sendable {
             textModelName: d.string(forKey: "text_model") ?? `default`.textModelName,
             imageBaseURL: d.string(forKey: "image_base_url") ?? `default`.imageBaseURL,
             imageEndpointPath: d.string(forKey: "image_endpoint_path") ?? `default`.imageEndpointPath,
-            imageModelName: d.string(forKey: "image_model") ?? `default`.imageModelName
+            imageModelName: d.string(forKey: "image_model") ?? `default`.imageModelName,
+            imageReferenceMode: d.string(forKey: "image_reference_mode") ?? `default`.imageReferenceMode,
+            referenceImageFieldName: d.string(forKey: "reference_image_field_name") ?? `default`.referenceImageFieldName,
+            imagePromptFieldName: d.string(forKey: "image_prompt_field_name") ?? `default`.imagePromptFieldName
         )
     }
 
@@ -72,6 +89,9 @@ struct AIProviderConfig: Sendable {
         d.set(imageBaseURL, forKey: "image_base_url")
         d.set(imageEndpointPath, forKey: "image_endpoint_path")
         d.set(imageModelName, forKey: "image_model")
+        d.set(imageReferenceMode, forKey: "image_reference_mode")
+        d.set(referenceImageFieldName, forKey: "reference_image_field_name")
+        d.set(imagePromptFieldName, forKey: "image_prompt_field_name")
     }
 }
 

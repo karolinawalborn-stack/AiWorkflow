@@ -12,6 +12,10 @@ final class MockImageService: AIImageServiceProtocol {
         }
     }
 
+    func generateImage(prompt: String, size: String, n: Int, referenceImageBase64: String?, referenceMode: String) async throws -> [ImageGenerationResult] {
+        return try await generateImage(prompt: prompt, size: size, n: n)
+    }
+
     private static func placeholder(size: String) -> Data? {
         #if canImport(UIKit)
         let parts = size.split(separator: "x").compactMap { Int($0) }

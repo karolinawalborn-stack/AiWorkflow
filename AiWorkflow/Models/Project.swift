@@ -136,6 +136,7 @@ enum ImageStatus: String, Codable, Sendable {
     case failed        // 请求失败
     case parseFailed   // 返回成功但解码失败
     case saveFailed    // 解码成功但本地保存失败
+    case cancelled     // 请求被取消
 }
 
 // MARK: - 图片卡片
@@ -155,10 +156,12 @@ struct ImageCard: Codable, Identifiable, Equatable, Sendable {
     var imageBase64: String?
     /// 本地文件路径（已下载到本地）
     var localFilePath: String?
+    /// 单张参考图路径（覆盖全局）
+    var referenceImageLocalPath: String?
     /// 错误信息
     var errorMessage: String?
 
-    init(cardIndex: Int, promptText: String = "", status: ImageStatus = .idle, rawResponse: String = "", imageURL: String? = nil, imageBase64: String? = nil, localFilePath: String? = nil, errorMessage: String? = nil) {
+    init(cardIndex: Int, promptText: String = "", status: ImageStatus = .idle, rawResponse: String = "", imageURL: String? = nil, imageBase64: String? = nil, localFilePath: String? = nil, referenceImageLocalPath: String? = nil, errorMessage: String? = nil) {
         self.id = UUID()
         self.cardIndex = cardIndex
         self.promptText = promptText
@@ -194,6 +197,26 @@ struct SavedTemplate: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - 参考图模式
+
+enum ImageReferenceMode: String, Codable, Sendable, CaseIterable {
+    case disabled            = "disabled"
+    case url                 = "imageURL"
+    case base64              = "base64"
+    case multipart           = "multipartUpload"
+    case promptOnlyFallback  = "promptOnlyFallback"
+
+    var displayName: String {
+        switch self {
+        case .disabled:           return "不使用参考图"
+        case .url:                return "URL 方式"
+        case .base64:             return "Base64 嵌入"
+        case .multipart:          return "Multipart 上传"
+        case .promptOnlyFallback: return "风格参考（追加到 Prompt）"
+        }
+    }
+}
+
 // MARK: - 项目（自包含聚合根）
 
 struct Project: Codable, Identifiable, Equatable, Sendable {
@@ -215,6 +238,11 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
     var promptCards: [PromptCard]
     var imageCards: [ImageCard]
     var useTemplateID: UUID?
+
+    // 全局参考图
+    var globalReferenceImageLocalPath: String?
+    var globalReferenceImageMode: ImageReferenceMode
+    var useGlobalReferenceImage: Bool
 
     var status: ProjectStatus {
         get { ProjectStatus(rawValue: statusRaw) ?? .draft }
@@ -255,5 +283,8 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
         self.copywritingCards = (0..<imageCount).map { CopywritingCard(cardIndex: $0) }
         self.promptCards = (0..<imageCount).map { PromptCard(cardIndex: $0) }
         self.imageCards = (0..<imageCount).map { ImageCard(cardIndex: $0) }
+        self.globalReferenceImageLocalPath = nil
+        self.globalReferenceImageMode = .promptOnlyFallback
+        self.useGlobalReferenceImage = false
     }
 }

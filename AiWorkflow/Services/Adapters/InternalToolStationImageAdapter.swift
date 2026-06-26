@@ -1,17 +1,7 @@
 import Foundation
 
 // ═══════════════════════════════════════════════════════
-//  图片生成适配器（适配 /v1/media/generate 接口）
-// ═══════════════════════════════════════════════════════
-//
-//  职责：
-//  1. 接收 AIImageServiceProtocol 调用
-//  2. 使用 config.imageURLString 构建最终 URL
-//  3. 使用 JSONSerialization 构建灵活请求体
-//  4. 兼容多种返回格式（url / base64 / 自定义字段）
-//  5. 统一输出 ImageGenerationResult
-//
-//  如果接口格式变了，只改这个文件。
+//  图片生成适配器（适配 /v1/media/generate + 参考图）
 // ═══════════════════════════════════════════════════════
 
 final class InternalToolStationImageAdapter: AIImageServiceProtocol {
@@ -28,41 +18,96 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
         size: String,
         n: Int
     ) async throws -> [ImageGenerationResult] {
-        let imageURL = config.imageURLString
+        // 走无参考图模式
+        let bodyDict = buildRequestBody(prompt: prompt, size: size, n: n, referenceImageData: nil)
+        return try await sendImageRequest(bodyDict: bodyDict)
+    }
 
-        print("""
-        🌐 [ImageAdapter] ===== generateImage() =====
-           endpoint: POST \(imageURL)
-           model: \(config.imageModelName)
-           prompt: \(prompt.prefix(200))
-           size: \(size)  n: \(n)
-        """)
+    /// 带参考图生成
+    func generateImage(
+        prompt: String,
+        size: String,
+        n: Int,
+        referenceImageBase64: String?,
+        referenceMode: String
+    ) async throws -> [ImageGenerationResult] {
+        let bodyDict = buildRequestBody(
+            prompt: prompt,
+            size: size,
+            n: n,
+            referenceImageData: (referenceImageBase64, referenceMode)
+        )
+        return try await sendImageRequest(bodyDict: bodyDict)
+    }
 
-        guard !config.imageModelName.isEmpty else {
-            print("🌐 ❌ imageModelName 为空!")
-            throw NetworkError.missingBaseURL
-        }
+    // MARK: - 请求体构造
 
-        guard !imageURL.isEmpty else {
-            print("🌐 ❌ imageURL 为空!")
-            throw NetworkError.invalidURL("图片接口 URL 未配置")
-        }
+    private func buildRequestBody(
+        prompt: String,
+        size: String,
+        n: Int,
+        referenceImageData: (base64: String?, mode: String)?
+    ) -> [String: Any] {
+        let refB64 = referenceImageData?.base64
+        let refMode = referenceImageData?.mode ?? "promptOnlyFallback"
 
-        // ── 构建请求体（可扩展字典） ──
-        var bodyDict: [String: Any] = [
+        var body: [String: Any] = [
+            config.imagePromptFieldName: prompt,
             "model": config.imageModelName,
-            "prompt": prompt,
             "n": n,
             "size": size,
         ]
-        // 某些接口需要 response_format 字段
-        bodyDict["response_format"] = "b64_json"
 
+        // 处理参考图
+        if let b64 = refB64, !b64.isEmpty, refMode != "disabled" {
+            switch refMode {
+            case "base64":
+                // 直接把 base64 嵌入请求体
+                body[config.referenceImageFieldName] = b64
+                print("🌐 [Adapter] 参考图模式=base64, 字段=\(config.referenceImageFieldName), base64长度=\(b64.count)")
+
+            case "imageURL":
+                // 如果是 URL 模式但传了 base64，先存着等外部处理
+                print("🌐 [Adapter] 参考图模式=imageURL, 需要由外部先上传获取 URL")
+                body[config.referenceImageFieldName] = b64
+
+            case "multipartUpload":
+                print("🌐 [Adapter] 参考图模式=multipartUpload, 当前以 base64 嵌入")
+                body[config.referenceImageFieldName] = b64
+
+            case "promptOnlyFallback":
+                // 把参考图描述拼进 prompt（默认）
+                let styleHint = "请严格参考上传参考图的人物造型、线条风格、留白边框、双格排版、角色一致性与整体色调"
+                body[config.imagePromptFieldName] = prompt + "\n\n[风格参考要求] " + styleHint
+                print("🌐 [Adapter] 参考图模式=promptOnlyFallback, 已拼接风格描述到 prompt")
+
+            default:
+                print("🌐 [Adapter] 参考图模式=\(refMode), 当前以 promptOnlyFallback 降级")
+                let styleHint = "请严格参考上传参考图的人物造型、线条风格、留白边框、双格排版、角色一致性与整体色调"
+                body[config.imagePromptFieldName] = prompt + "\n\n[风格参考要求] " + styleHint
+            }
+        }
+
+        return body
+    }
+
+    // MARK: - 发送请求
+
+    private func sendImageRequest(bodyDict: [String: Any]) async throws -> [ImageGenerationResult] {
+        let imageURL = config.imageURLString
         let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+
         print("""
-        🌐 [ImageAdapter] 请求体 (\(bodyData.count) bytes):
-           \(String(data: bodyData, encoding: .utf8)?.prefix(500) ?? "N/A")
+        🌐 [Adapter] ===== 发送图片请求 =====
+           URL: POST \(imageURL)
+           Model: \(config.imageModelName)
+           请求体字段: \(bodyDict.keys.joined(separator: ", "))
+           请求体大小: \(bodyData.count) bytes
         """)
+
+        guard !imageURL.isEmpty else {
+            throw NetworkError.invalidURL("图片接口 URL 未配置")
+        }
 
         let request = APIRequest(
             method: .post,
@@ -73,45 +118,42 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
         )
 
         print("""
-        🌐 [ImageAdapter] 即将发送请求:
+        🌐 [Adapter] 请求详情:
            URL: \(request.url)
            Method: \(request.method.rawValue)
-           Auth: \(request.headers["Authorization"] != nil ? "✅" : "❌ 无 Token")
-           Timeout: \(config.timeout)s
+           Auth: \(request.headers["Authorization"] != nil ? "✅" : "❌")
         """)
 
-        // ── 发请求 ──
         let rawData = try await httpClient.sendRaw(request)
+        print("🌐 [Adapter] 原始响应: \(rawData.count) bytes")
 
-        print("🌐 [ImageAdapter] 原始响应大小: \(rawData.count) bytes")
         if let rawStr = String(data: rawData, encoding: .utf8) {
-            print("🌐 [ImageAdapter] ⬇️⬇️⬇️ 原始响应全文 ⬇️⬇️⬇️")
+            print("🌐 [Adapter] ⬇️⬇️⬇️ 原始响应全文 ⬇️⬇️⬇️")
             print(rawStr)
-            print("🌐 [ImageAdapter] ⬆️⬆️⬆️ 原始响应结束 ⬆️⬆️⬆️")
+            print("🌐 [Adapter] ⬆️⬆️⬆️ 原始响应结束 ⬆️⬆️⬆️")
         }
 
-        // ── 灵活解析返回 ──
+        // 解析
         let parsed = FlexibleImageResponseParser.parse(from: rawData)
         print("""
-        🌐 [ImageAdapter] 解析结果:
+        🌐 [Adapter] 解析结果:
            url=\(parsed.url ?? "nil")
-           hasBase64=\(parsed.base64 != nil)
-           revisedPrompt=\(parsed.revisedPrompt?.prefix(100) ?? "nil")
+           base64=\(parsed.base64 != nil ? "\(parsed.base64!.prefix(30))..." : "nil")
         """)
 
-        // 构造 ImageGenerationResult
+        // 获取图片数据
         var imageData: Data? = nil
         if let b64 = parsed.base64 {
             imageData = Data(base64Encoded: b64)
-            print("🌐 [ImageAdapter] base64 解码: \(imageData?.count ?? 0) bytes")
+            print("🌐 [Adapter] base64 解码: \(imageData?.count ?? 0) bytes")
         }
         if imageData == nil, let urlStr = parsed.url, let url = URL(string: urlStr) {
-            print("🌐 [ImageAdapter] 开始下载 URL 图片: \(urlStr)")
+            print("🌐 [Adapter] 开始下载 URL: \(urlStr)")
             if let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: config.timeout)) {
                 imageData = data
-                print("🌐 [ImageAdapter] URL 下载成功: \(data.count) bytes")
+                print("🌐 [Adapter] URL 下载成功: \(data.count) bytes")
             } else {
-                print("🌐 [ImageAdapter] URL 下载失败")
+                print("🌐 [Adapter] URL 下载失败")
             }
         }
 
@@ -121,10 +163,8 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
             revisedPrompt: parsed.revisedPrompt
         )
 
-        print("🌐 [ImageAdapter] 最终结果: imageData=\(result.imageData?.count ?? 0) bytes, imageURL=\(result.imageURL ?? "nil")")
-
         if imageData == nil {
-            print("🌐 [ImageAdapter] ⚠️ 所有解析方式都未获取到图片数据")
+            print("🌐 [Adapter] ❌ 所有解析方式均未获取到图片数据")
         }
 
         return [result]
