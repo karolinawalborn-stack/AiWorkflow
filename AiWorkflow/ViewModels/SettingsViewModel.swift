@@ -12,9 +12,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var isValidating = false
 
     // 三套模板
-    @Published var topicTemplate: PromptTemplate
-    @Published var copyTemplate: PromptTemplate
-    @Published var promptTemplate: PromptTemplate
+    @Published var topicTemplate: AITemplate
+    @Published var copyTemplate: AITemplate
+    @Published var promptTemplate: AITemplate
     @Published var showPreviewFor: String? = nil  // 当前预览哪套模板
 
     init() {
@@ -22,7 +22,7 @@ final class SettingsViewModel: ObservableObject {
         self.apiBaseURL = s.apiBaseURL; self.apiKey = s.apiKey
         self.textModelID = s.textModelID; self.imageModelID = s.imageModelID
 
-        let t = PromptTemplates.load()
+        let t = AITemplates.load()
         self.topicTemplate = t.topic
         self.copyTemplate = t.copywriting
         self.promptTemplate = t.imagePrompt
@@ -61,19 +61,19 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - 模板保存
 
     func saveTemplates() {
-        let t = PromptTemplates(topic: topicTemplate, copywriting: copyTemplate, imagePrompt: promptTemplate)
+        let t = AITemplates(topic: topicTemplate, copywriting: copyTemplate, imagePrompt: promptTemplate)
         t.save()
     }
 
     /// 获取指定模板的渲染预览
-    func preview(for template: PromptTemplate) -> String {
+    func preview(for template: AITemplate) -> String {
         template.render()
     }
 
     /// 恢复全套默认
     func resetAllTemplates() {
-        PromptTemplates.resetToDefaults()
-        let t = PromptTemplates.load()
+        AITemplates.resetToDefaults()
+        let t = AITemplates.load()
         topicTemplate = t.topic
         copyTemplate = t.copywriting
         promptTemplate = t.imagePrompt
@@ -100,7 +100,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     /// 获取模板（按 id）
-    func template(for id: String) -> PromptTemplate? {
+    func template(for id: String) -> AITemplate? {
         switch id {
         case "topic": return topicTemplate
         case "copywriting": return copyTemplate
@@ -110,7 +110,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     /// 更新模板
-    func updateTemplate(_ t: PromptTemplate) {
+    func updateTemplate(_ t: AITemplate) {
         switch t.id {
         case "topic": topicTemplate = t
         case "copywriting": copyTemplate = t

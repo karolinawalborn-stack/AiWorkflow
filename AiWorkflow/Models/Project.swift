@@ -129,9 +129,9 @@ struct GeneratedImageItem: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-// MARK: - 提示词模板
+// MARK: - 提示词模板（旧版存储结构，保留兼容）
 
-struct PromptTemplate: Codable, Identifiable, Equatable, Sendable {
+struct SavedTemplate: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var content: String

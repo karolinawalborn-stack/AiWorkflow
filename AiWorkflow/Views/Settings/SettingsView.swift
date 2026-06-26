@@ -64,7 +64,7 @@ struct SettingsView: View {
     // MARK: - 模板编辑器区块
 
     @ViewBuilder
-    func templateSection(template: Binding<PromptTemplate>, id: String, title: String) -> some View {
+    func templateSection(template: Binding<AITemplate>, id: String, title: String) -> some View {
         let isPreview = vm.showPreviewFor == id
 
         Section {

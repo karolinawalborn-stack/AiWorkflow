@@ -23,7 +23,7 @@ final class CopyEditViewModel: ObservableObject {
         isLoading = true; errorMessage = nil; progressText = "正在生成文案..."
 
         let topicTitle = selectedTopic?.title ?? p.name
-        var copyTemplate = PromptTemplates.load().copywriting
+        var copyTemplate = AITemplates.load().copywriting
         // 注入当前选题到变量
         if let idx = copyTemplate.variables.firstIndex(where: { $0.key == "selected_topic" }) {
             copyTemplate.variables[idx].value = topicTitle

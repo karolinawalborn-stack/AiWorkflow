@@ -45,7 +45,7 @@ final class TopicViewModel: ObservableObject {
         isLoading = true; errorMessage = nil
         log("🚀 开始生成选题... positioningInput=\(positioningInput.prefix(30))...")
 
-        let systemPrompt = PromptTemplates.load().topic.render()
+        let systemPrompt = AITemplates.load().topic.render()
         log("📝 System Prompt 长度: \(systemPrompt.count) 字符")
 
         Task {
