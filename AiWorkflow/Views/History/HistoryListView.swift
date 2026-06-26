@@ -67,7 +67,7 @@ struct DetailView: View {
 
                 let cards = project.sortedCopyCards.filter { !$0.isEmpty }
                 if !cards.isEmpty {
-                    Section { ForEach(cards) { c in VStack(alignment: .leading) { Text("图\(c.cardIndex+1)：\(c.topFrame)").font(.subheadline); Text(c.bottomFrame).font(.caption).foregroundColor(.secondary) } } }
+                    Section { ForEach(cards) { c in VStack(alignment: .leading) { Text("图\(c.cardIndex+1)：\(c.topText)").font(.subheadline); Text(c.bottomText).font(.caption).foregroundColor(.secondary) } } }
                     header: { Text("文案").foregroundColor(.secondary) }
                 }
 

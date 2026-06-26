@@ -2,146 +2,153 @@ import SwiftUI
 
 @MainActor
 final class CopyEditViewModel: ObservableObject {
+    // UI 状态
     @Published var cards: [CopywritingCard] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var progressText: String = ""
     @Published var userTopic: String = ""
     @Published var extraRequirements: String = ""
+    @Published var rawResponse: String = ""   // 原始模型返回文本
+    @Published var parseMode: String = ""     // 当前解析方式
 
     var project: Project?
     private var store: ProjectStore?
     private var textService: AITextServiceProtocol?
 
     func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project, userTopic: String, extraRequirements: String) {
-        self.store = store; self.textService = textService; self.project = project
+        self.store = store
+        self.textService = textService
+        self.project = project
         self.userTopic = userTopic
         self.extraRequirements = extraRequirements
-        self.cards = project.sortedCopyCards
-        print("📝 CopyEditVM.setup: topic=\(userTopic.prefix(30))..., cards=\(cards.count)")
+        self.cards = project.copywritingCards.sorted { $0.cardIndex < $1.cardIndex }
+        print("📝 [CopyEdit] setup: topic=\(userTopic.prefix(30))..., project=\(project.name)")
+        print("📝 [CopyEdit] cards.count=\(cards.count), 非空=\(cards.filter { !$0.isEmpty }.count)")
     }
 
+    // MARK: - 生成文案
+
     func generateCopy() {
-        print("🔵 [CopyEdit] generateCopy() 被调用")
+        print("🔵 [CopyEdit] ===== 生成文案 =====")
         guard let ts = textService else {
-            errorMessage = "AI 服务未初始化（textService 为 nil）"
-            print("❌ [CopyEdit] textService 为 nil")
-            return
+            errorMessage = "AI 服务未初始化"; print("❌ textService nil"); return
         }
         guard let p = project else {
-            errorMessage = "项目数据未加载"
-            print("❌ [CopyEdit] project 为 nil")
-            return
+            errorMessage = "项目未加载"; print("❌ project nil"); return
         }
         let topic = userTopic.trimmingCharacters(in: .whitespaces)
         guard !topic.isEmpty else {
-            errorMessage = "选题为空，请在开始创作页输入选题"
-            print("❌ [CopyEdit] userTopic 为空")
-            return
+            errorMessage = "选题为空"; print("❌ topic 空"); return
         }
 
-        isLoading = true; errorMessage = nil; progressText = "正在生成文案..."
-        print("📝 [CopyEdit] 选题: \(topic.prefix(40))")
-        print("📝 [CopyEdit] 补充要求: \(extraRequirements.prefix(60))")
-        print("📝 [CopyEdit] project: \(p.name) id=\(p.id)")
+        isLoading = true
+        errorMessage = nil
+        progressText = "正在生成文案..."
+        rawResponse = ""
+        parseMode = ""
 
-        // 使用文案模板，注入选题
+        print("📝 [CopyEdit] topic=\(topic.prefix(40))")
+        print("📝 [CopyEdit] extra=\(extraRequirements.prefix(60))")
+
         var copyTemplate = AITemplates.load().copywriting
-        print("📝 [CopyEdit] 模板正文长度: \(copyTemplate.body.count)")
         if let idx = copyTemplate.variables.firstIndex(where: { $0.key == "selected_topic" }) {
             copyTemplate.variables[idx].value = topic
-            print("📝 [CopyEdit] 注入 selected_topic = \(topic.prefix(30))")
         }
         let systemPrompt = copyTemplate.render()
-        print("📝 [CopyEdit] 最终 prompt 前 200 字: \(systemPrompt.prefix(200))")
+        print("📝 [CopyEdit] prompt 长度=\(systemPrompt.count)")
 
         let userMessage = "选题：\(topic)\n图数：\(p.imageCount) 张\n比例：\(p.ratio)\n风格：\(p.ipStyle)\(extraRequirements.isEmpty ? "" : "\n补充要求：\(extraRequirements)")"
-        let startTime = Date()
 
         Task {
             do {
-                print("⏳ [CopyEdit] 请求开始... model=\(ts is MockTextService ? "Mock" : "Real")")
+                print("⏳ [CopyEdit] 请求 API...")
+                let start = Date()
                 let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: userMessage, temperature: 0.8)
-                let elapsed = Date().timeIntervalSince(startTime)
-                print("✅ [CopyEdit] API 返回 (\(String(format: "%.1f", elapsed))s)")
-                print("📥 [CopyEdit] 原始响应: \(r.prefix(300))")
+                let elapsed = Date().timeIntervalSince(start)
+                print("✅ [CopyEdit] 返回 (\(String(format: "%.1f", elapsed))s)")
 
-                let parsed = try parseCopyJSON(r)
-                print("✅ [CopyEdit] 解析成功: \(parsed.count) 条文案")
+                // 保存原始响应
+                self.rawResponse = r
+                print("📥 [CopyEdit] 原始响应长度=\(r.count)")
+                print("📥 [CopyEdit] 前200字: \(r.prefix(200))")
 
-                var np = p
-                var nc = np.copywritingCards
-                for item in parsed where item.index < nc.count {
-                    nc[item.index].topFrame = item.top
-                    nc[item.index].bottomFrame = item.bottom
+                // 解析
+                let result = CopywritingParser.parse(rawText: r, expectedCount: p.imageCount)
+                self.parseMode = result.mode.rawValue
+
+                if let err = result.error {
+                    print("❌ [CopyEdit] 解析失败: \(err)")
+                    self.errorMessage = "解析失败：\(err)"
+                    self.isLoading = false
+                    self.progressText = ""
+                    return
                 }
-                np.copywritingCards = nc
-                if np.status == .draft || np.status == .topicsReady || np.status == .topicSelected { np.status = .copyReady }
-                store?.upsert(np); project = np
-                cards = nc.sorted { $0.cardIndex < $1.cardIndex }
-                isLoading = false; progressText = "✅ 文案生成完成"
-                print("✅ [CopyEdit] 文案已更新到 UI: \(cards.count) 张")
+
+                // 更新项目
+                var np = p
+                np.copywritingCards = result.cards
+                if np.status == .draft || np.status == .topicsReady || np.status == .topicSelected {
+                    np.status = .copyReady
+                }
+                self.store?.upsert(np)
+                self.project = np
+                self.cards = result.cards.sorted { $0.cardIndex < $1.cardIndex }
+                self.isLoading = false
+                self.progressText = "✅ 文案生成完成（\(result.cards.count)张，\(result.mode.rawValue)）"
+                print("✅ [CopyEdit] 完成: \(result.cards.count) 张, 模式=\(result.mode.rawValue)")
+
             } catch let ne as NetworkError {
-                let msg = "[\(ne.category)] \(ne.errorDescription ?? "")"
-                errorMessage = "生成失败：\(msg)"
-                isLoading = false; progressText = ""
-                print("❌ [CopyEdit] \(msg)")
+                self.errorMessage = "生成失败：[\(ne.category)] \(ne.errorDescription ?? "")"
+                self.isLoading = false; self.progressText = ""
+                print("❌ [CopyEdit] [\(ne.category)] \(ne.errorDescription ?? "")")
             } catch {
-                let msg = "未知错误：\(error.localizedDescription)"
-                errorMessage = msg
-                isLoading = false; progressText = ""
-                print("❌ [CopyEdit] \(msg)")
+                self.errorMessage = "生成失败：\(error.localizedDescription)"
+                self.isLoading = false; self.progressText = ""
+                print("❌ [CopyEdit] \(error.localizedDescription)")
             }
         }
     }
 
-    /// 加载本地测试文案（跳过 API，不碰 store）
+    // MARK: - 本地测试（跳过 API，不碰 store）
+
     func loadMockCopy() {
-        print("🧪 [CopyEdit] ===== 加载测试文案 =====")
-        isLoading = false; errorMessage = nil
+        print("🧪 [CopyEdit] ===== 加载测试文案(本地) =====")
+        isLoading = false
+        errorMessage = nil
+        rawResponse = ""
+        parseMode = "local"
 
-        // 直接构造 CopywritingCard 数组，不涉及任何 JSON 编解码
-        let mockData: [(Int, String, String)] = [
-            (0, "你又一次把聊天记录翻到最上面", "原来一个人变心前连标点符号都会变"),
-            (1, "他说只是加班，你信了", "一个装睡的人叫不醒，但你可以选择先醒"),
-            (2, "领导拍拍你的肩说能者多劳", "能者多劳的下半句是——多劳者未必多得"),
-            (3, "你妈说：不结婚就是不孝", "孝顺不是活成别人想要的样子"),
-            (4, "你帮他找了一万种借口", "你值得被明目张胆的偏爱"),
-            (5, "你说没事，然后一个人把委屈咽了回去", "从今天起先照顾好自己，再对世界温柔"),
+        // 直接构造 6 个 CopywritingCard，零 JSON 零 store
+        var mock: [CopywritingCard] = []
+        let items: [(Int, String, String, String)] = [
+            (0, "你又一次把聊天记录翻到最上面", "原来一个人变心前连标点符号都会变", "钩子，制造代入感"),
+            (1, "他说只是加班，你信了", "一个装睡的人叫不醒，但你可以选择先醒", "现实场景，加深共鸣"),
+            (2, "领导拍拍你的肩说能者多劳", "能者多劳的下半句是——多劳者未必多得", "放大委屈"),
+            (3, "你妈说：不结婚就是不孝", "孝顺不是活成别人想要的样子", "点破本质"),
+            (4, "你帮他找了一万种借口", "你值得被明目张胆的偏爱", "开始清醒"),
+            (5, "你说没事，然后一个人把委屈咽了回去", "从今天起先照顾好自己，再对世界温柔", "金句收尾"),
         ]
-
-        var result: [CopywritingCard] = []
-        for (idx, top, bottom) in mockData {
-            let card = CopywritingCard(cardIndex: idx, topFrame: top, bottomFrame: bottom)
-            print("📝 [CopyEdit]   构造 card[\(idx)]: id=\(card.id), top=\(card.topFrame.prefix(20))..., bottom=\(card.bottomFrame.prefix(20))...")
-            result.append(card)
+        for (idx, top, bottom, purpose) in items {
+            let card = CopywritingCard(cardIndex: idx, topText: top, bottomText: bottom, purpose: purpose)
+            print("📝 [CopyEdit]   构造 card[\(idx)] top=\(top.prefix(20))... bottom=\(bottom.prefix(20))...")
+            mock.append(card)
         }
 
-        cards = result
-        progressText = "🧪 测试文案已加载 \(result.count) 张"
-        print("✅ [CopyEdit] 测试文案加载完成: \(cards.count) 张，不涉及任何 JSON 解析")
+        cards = mock
+        progressText = "🧪 测试文案 \(mock.count) 张"
+        parseMode = "local test"
+        print("✅ [CopyEdit] 测试文案就绪: \(cards.count) 张, 不碰 store 不碰 JSON")
     }
 
-    func updateCard(index: Int, top: String, bottom: String) {
+    // MARK: - 编辑
+
+    func updateCard(index: Int, topText: String, bottomText: String, purpose: String = "") {
         guard index < cards.count else { return }
-        cards[index].topFrame = top; cards[index].bottomFrame = bottom; cards[index].isEdited = true
-        var p = project!; p.copywritingCards = cards; store?.upsert(p); project = p
-    }
-
-    private func parseCopyJSON(_ text: String) throws -> [(index: Int, top: String, bottom: String)] {
-        let d: Data
-        if let data = text.data(using: .utf8) { d = data }
-        else if let ex = extractJSON(text) { d = ex }
-        else { throw NSError(domain: "Parse", code: -1) }
-        guard let j = try JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { throw NSError(domain: "Parse", code: -1) }
-        return j.compactMap {
-            guard let idx = $0["cardIndex"] as? Int, let t = $0["topFrame"] as? String, let b = $0["bottomFrame"] as? String else { return nil }
-            return (idx, t, b)
-        }
-    }
-
-    private func extractJSON(_ text: String) -> Data? {
-        guard let r = text.range(of: "```json"), let e = text[r.upperBound...].range(of: "```") else { return nil }
-        return String(text[r.upperBound..<e.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8)
+        cards[index].topText = topText
+        cards[index].bottomText = bottomText
+        cards[index].purpose = purpose
+        cards[index].isEdited = true
+        // 不立即写 store，只在必要时持久化
     }
 }

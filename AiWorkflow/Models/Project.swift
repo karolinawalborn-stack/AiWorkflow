@@ -71,21 +71,26 @@ struct TopicCandidate: Codable, Identifiable, Equatable, Sendable {
 struct CopywritingCard: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var cardIndex: Int
-    var topFrame: String        // 上半格：受压/委屈/被消耗
-    var bottomFrame: String     // 下半格：清醒/反击/离开
+    /// 上半格文案
+    var topText: String
+    /// 下半格文案
+    var bottomText: String
+    /// 这一张的作用（仅解析器使用，不持久化）
+    var purpose: String
     var isEdited: Bool
 
-    init(cardIndex: Int, topFrame: String = "", bottomFrame: String = "") {
+    init(cardIndex: Int, topText: String = "", bottomText: String = "", purpose: String = "") {
         self.id = UUID()
         self.cardIndex = cardIndex
-        self.topFrame = topFrame
-        self.bottomFrame = bottomFrame
+        self.topText = topText
+        self.bottomText = bottomText
+        self.purpose = purpose
         self.isEdited = false
     }
 
     var isEmpty: Bool {
-        topFrame.trimmingCharacters(in: .whitespaces).isEmpty &&
-        bottomFrame.trimmingCharacters(in: .whitespaces).isEmpty
+        topText.trimmingCharacters(in: .whitespaces).isEmpty &&
+        bottomText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 }
 

@@ -22,16 +22,16 @@ final class PromptViewModel: ObservableObject {
         isLoading = true; errorMessage = nil
 
         let cardsText = p.sortedCopyCards.map {
-            "图\($0.cardIndex + 1)上:\($0.topFrame) | 下:\($0.bottomFrame)"
+            "图\($0.cardIndex + 1)上:\($0.topText) | 下:\($0.bottomText)"
         }.joined(separator: "\n")
 
         var imgTemplate = AITemplates.load().imagePrompt
         // 注入文案变量
         if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "top_caption" }) {
-            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.topFrame }.joined(separator: " | ")
+            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.topText }.joined(separator: " | ")
         }
         if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "bottom_caption" }) {
-            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.bottomFrame }.joined(separator: " | ")
+            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.bottomText }.joined(separator: " | ")
         }
         let systemPrompt = imgTemplate.render()
         let userMessage = "IP:\(p.ipStyle)\n比例:\(p.ratio)\n文案:\n\(cardsText)"
