@@ -68,7 +68,6 @@ final class TopicViewModel: ObservableObject {
                 log("✅ 选题已更新到 UI, topics=\(topics.count)个")
             } catch let error as DecodingError {
                 log("❌ JSON 解析失败: \(error.localizedDescription)")
-                log("📄 原始响应: \((try? await Task.value) ?? "N/A")")
                 errorMessage = "数据解析失败，AI 返回格式异常，请重试"
                 isLoading = false
             } catch {
