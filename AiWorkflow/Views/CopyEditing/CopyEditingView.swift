@@ -133,65 +133,44 @@ struct CopyEditingView: View {
     }
 }
 
-// MARK: - 单张卡片子视图
+// MARK: - 单张卡片子视图（单一数据源：直接从 card 读取，无 @State）
 
 struct CopyCardRow: View {
     let card: CopywritingCard
     let onUpdate: (String, String, String) -> Void
 
-    @State private var topText: String = ""
-    @State private var bottomText: String = ""
-    @State private var purpose: String = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("第\(card.cardIndex + 1)张").font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
 
-            // 预览行（只读，跟随 @State 显示）
+            // 预览行（从 card 直接读取）
             HStack {
-                if !topText.isEmpty { Text("上: \(topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
-                if !bottomText.isEmpty { Text("下: \(bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
-                if !purpose.isEmpty { Text("作用: \(purpose)").font(.caption2).foregroundColor(.secondary) }
+                if !card.topText.isEmpty { Text("上: \(card.topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !card.bottomText.isEmpty { Text("下: \(card.bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !card.purpose.isEmpty { Text("作用: \(card.purpose)").font(.caption2).foregroundColor(.secondary) }
             }
 
-            // 编辑区
+            // 编辑区（使用 computed Binding，每次从 card 读取最新值）
             VStack(spacing: 0) {
-                TextField("上半格文案", text: $topText, axis: .vertical)
-                    .textFieldStyle(.plain).padding().lineLimit(2...3)
+                TextField("上半格文案", text: Binding(
+                    get: { card.topText },
+                    set: { onUpdate($0, card.bottomText, card.purpose) }
+                ), axis: .vertical)
+                .textFieldStyle(.plain).padding().lineLimit(2...3)
+
                 Divider().padding(.leading)
-                TextField("下半格文案", text: $bottomText, axis: .vertical)
-                    .textFieldStyle(.plain).padding().lineLimit(2...3)
+
+                TextField("下半格文案", text: Binding(
+                    get: { card.bottomText },
+                    set: { onUpdate(card.topText, $0, card.purpose) }
+                ), axis: .vertical)
+                .textFieldStyle(.plain).padding().lineLimit(2...3)
             }
             .background(Color(.systemGray6)).cornerRadius(10)
-            .onChange(of: topText) { _ in onUpdate(topText, bottomText, purpose) }
-            .onChange(of: bottomText) { _ in onUpdate(topText, bottomText, purpose) }
-            .onChange(of: purpose) { _ in onUpdate(topText, bottomText, purpose) }
+            .padding(.top, 2)
         }
         .onAppear {
-            topText = card.topText
-            bottomText = card.bottomText
-            purpose = card.purpose
             print("📱 [CopyCardRow] card[\(card.cardIndex)] appear: top=「\(card.topText)」 bottom=「\(card.bottomText)」")
-        }
-        .onChange(of: card.id) { _ in
-            topText = card.topText
-            bottomText = card.bottomText
-            purpose = card.purpose
-            print("📱 [CopyCardRow] card[\(card.cardIndex)] id changed, reload: top=「\(card.topText)」")
-        }
-        // 内容级别同步：当 card 的内容在外部被修改时（相同 ID 但文字变了）
-        // 使用 guard 防止 onChange 循环
-        .onChange(of: card.topText) { newValue in
-            guard topText != newValue else { return }
-            topText = newValue
-        }
-        .onChange(of: card.bottomText) { newValue in
-            guard bottomText != newValue else { return }
-            bottomText = newValue
-        }
-        .onChange(of: card.purpose) { newValue in
-            guard purpose != newValue else { return }
-            purpose = newValue
         }
     }
 }

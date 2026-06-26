@@ -77,12 +77,12 @@ struct DetailView: View {
                     header: { Text("提示词").foregroundColor(.secondary) }
                 }
 
-                let imgs = project.sortedImages.filter { $0.isGenerated }
+                let imgs = project.sortedImages.filter { $0.status == .success }
                 if !imgs.isEmpty {
                     Section {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                             ForEach(imgs) { img in
-                                if let data = img.imageData, let ui = UIImage(data: data) { Image(uiImage: ui).resizable().aspectRatio(3/4, contentMode: .fit).cornerRadius(8) }
+                                if let data = img.decodedImageData, let ui = UIImage(data: data) { Image(uiImage: ui).resizable().aspectRatio(3/4, contentMode: .fit).cornerRadius(8) }
                                 else { Rectangle().aspectRatio(3/4, contentMode: .fit).foregroundColor(.gray).overlay(Text("无图").font(.caption)).cornerRadius(8) }
                             }
                         }

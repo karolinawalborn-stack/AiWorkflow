@@ -127,27 +127,54 @@ struct PromptCard: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-// MARK: - 已生成图片
+// MARK: - 图片状态
 
-struct GeneratedImageItem: Codable, Identifiable, Equatable, Sendable {
+enum ImageStatus: String, Codable, Sendable {
+    case idle          // 未生成
+    case generating    // 生成中
+    case success       // 成功
+    case failed        // 请求失败
+    case parseFailed   // 返回成功但解码失败
+    case saveFailed    // 解码成功但本地保存失败
+}
+
+// MARK: - 图片卡片
+
+struct ImageCard: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var cardIndex: Int
-    var isGenerated: Bool
-    var imageDataBase64: String?
-    var localPath: String?
-    var usedPrompt: String?
-    var createdAt: Date
+    /// 使用的提示词
+    var promptText: String
+    /// 状态
+    var status: ImageStatus
+    /// API 原始响应（全文）
+    var rawResponse: String
+    /// 图片 URL（如有）
+    var imageURL: String?
+    /// base64 编码的图片数据
+    var imageBase64: String?
+    /// 本地文件路径（已下载到本地）
+    var localFilePath: String?
+    /// 错误信息
+    var errorMessage: String?
 
-    init(cardIndex: Int) {
+    init(cardIndex: Int, promptText: String = "", status: ImageStatus = .idle, rawResponse: String = "", imageURL: String? = nil, imageBase64: String? = nil, localFilePath: String? = nil, errorMessage: String? = nil) {
         self.id = UUID()
         self.cardIndex = cardIndex
-        self.isGenerated = false
-        self.createdAt = Date()
+        self.promptText = promptText
+        self.status = status
+        self.rawResponse = rawResponse
+        self.imageURL = imageURL
+        self.imageBase64 = imageBase64
+        self.localFilePath = localFilePath
+        self.errorMessage = errorMessage
     }
 
-    var imageData: Data? {
-        get { imageDataBase64.flatMap { Data(base64Encoded: $0) } }
-        set { imageDataBase64 = newValue?.base64EncodedString() }
+    /// 解码后的图片数据（从 base64 或本地文件读取）
+    var decodedImageData: Data? {
+        if let b64 = imageBase64 { return Data(base64Encoded: b64) }
+        if let path = localFilePath { return try? Data(contentsOf: URL(fileURLWithPath: path)) }
+        return nil
     }
 }
 
@@ -186,7 +213,7 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
     var selectedTopicID: UUID?
     var copywritingCards: [CopywritingCard]
     var promptCards: [PromptCard]
-    var imageItems: [GeneratedImageItem]
+    var imageCards: [ImageCard]
     var useTemplateID: UUID?
 
     var status: ProjectStatus {
@@ -202,7 +229,7 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
     var sortedTopics: [TopicCandidate] { topicCandidates.sorted { $0.sortOrder < $1.sortOrder } }
     var sortedCopyCards: [CopywritingCard] { copywritingCards.sorted { $0.cardIndex < $1.cardIndex } }
     var sortedPrompts: [PromptCard] { promptCards.sorted { $0.cardIndex < $1.cardIndex } }
-    var sortedImages: [GeneratedImageItem] { imageItems.sorted { $0.cardIndex < $1.cardIndex } }
+    var sortedImages: [ImageCard] { imageCards.sorted { $0.cardIndex < $1.cardIndex } }
 
     init(
         name: String,
@@ -227,6 +254,6 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
         self.useTemplateID = nil
         self.copywritingCards = (0..<imageCount).map { CopywritingCard(cardIndex: $0) }
         self.promptCards = (0..<imageCount).map { PromptCard(cardIndex: $0) }
-        self.imageItems = (0..<imageCount).map { GeneratedImageItem(cardIndex: $0) }
+        self.imageCards = (0..<imageCount).map { ImageCard(cardIndex: $0) }
     }
 }
