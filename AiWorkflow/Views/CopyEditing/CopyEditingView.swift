@@ -6,15 +6,16 @@ struct CopyEditingView: View {
     @StateObject private var vm = CopyEditViewModel()
     @State private var goNext = false
     let projectID: UUID
+    let userTopic: String
+    let extraRequirements: String
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 ProgressHeader(title: vm.project?.name ?? "文案", step: 2, total: 4, tint: .purple)
 
-                if let t = vm.selectedTopic {
-                    HStack { Image(systemName: "target").foregroundColor(.blue); Text(t.title).font(.subheadline); Spacer() }.padding().background(Color.blue.opacity(0.08)).cornerRadius(10)
-                }
+                // 显示用户输入的选题
+                HStack { Image(systemName: "quote.opening").foregroundColor(.blue); Text(userTopic).font(.subheadline); Spacer() }.padding().background(Color.blue.opacity(0.08)).cornerRadius(10)
 
                 Button { vm.generateCopy() } label: { HStack { Image(systemName: "sparkles"); Text(vm.isLoading ? "生成中..." : "生成文案") }.frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).disabled(vm.isLoading)
@@ -43,6 +44,10 @@ struct CopyEditingView: View {
         .navigationTitle("文案编辑").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("下一步") { goNext = true }.disabled(vm.cards.isEmpty) } }
         .navigationDestination(isPresented: $goNext) { PromptGenView(projectID: projectID) }
-        .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
+        .onAppear {
+            if let p = store.project(id: projectID) {
+                vm.setup(store: store, textService: textService, project: p, userTopic: userTopic, extraRequirements: extraRequirements)
+            }
+        }
     }
 }

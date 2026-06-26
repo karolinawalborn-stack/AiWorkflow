@@ -6,33 +6,41 @@ final class CopyEditViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var progressText: String = ""
-    @Published var selectedTopic: TopicCandidate?
+    @Published var userTopic: String = ""
+    @Published var extraRequirements: String = ""
 
     var project: Project?
     private var store: ProjectStore?
     private var textService: AITextServiceProtocol?
 
-    func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project) {
+    func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project, userTopic: String, extraRequirements: String) {
         self.store = store; self.textService = textService; self.project = project
+        self.userTopic = userTopic
+        self.extraRequirements = extraRequirements
         self.cards = project.sortedCopyCards
-        self.selectedTopic = project.selectedTopic
+        print("📝 CopyEditVM.setup: topic=\(userTopic.prefix(30))..., cards=\(cards.count)")
     }
 
     func generateCopy() {
         guard let ts = textService, let p = project else { return }
+        guard !userTopic.trimmingCharacters(in: .whitespaces).isEmpty else {
+            errorMessage = "选题不能为空"; return
+        }
         isLoading = true; errorMessage = nil; progressText = "正在生成文案..."
 
-        let topicTitle = selectedTopic?.title ?? p.name
+        // 使用文案模板，注入选题和补充要求
         var copyTemplate = AITemplates.load().copywriting
-        // 注入当前选题到变量
         if let idx = copyTemplate.variables.firstIndex(where: { $0.key == "selected_topic" }) {
-            copyTemplate.variables[idx].value = topicTitle
+            copyTemplate.variables[idx].value = userTopic
         }
         let systemPrompt = copyTemplate.render()
-        let userMessage = "为「\(topicTitle)」生成\(p.imageCount)张图。\n赛道：\(p.category)\n风格：\(p.style)"
+
+        let userMessage = "选题：\(userTopic)\n图数：\(p.imageCount) 张\n比例：\(p.ratio)\n风格：\(p.ipStyle)\(extraRequirements.isEmpty ? "" : "\n补充要求：\(extraRequirements)")"
+
         Task {
             do {
                 let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: userMessage, temperature: 0.8)
+                print("📥 文案 API 返回: \(r.prefix(100))...")
 
                 let parsed = try parseCopyJSON(r)
                 var np = p
@@ -42,12 +50,18 @@ final class CopyEditViewModel: ObservableObject {
                     nc[item.index].bottomFrame = item.bottom
                 }
                 np.copywritingCards = nc
-                if np.status == .topicSelected || np.status == .draft || np.status == .topicsReady { np.status = .copyReady }
+                if np.status == .draft || np.status == .topicsReady || np.status == .topicSelected { np.status = .copyReady }
                 store?.upsert(np); project = np
                 cards = nc.sorted { $0.cardIndex < $1.cardIndex }
                 isLoading = false; progressText = "文案生成完成"
+            } catch let ne as NetworkError {
+                errorMessage = "生成失败：[\(ne.category)] \(ne.errorDescription ?? "")"
+                isLoading = false; progressText = ""
+                print("❌ [\(ne.category)] \(ne.errorDescription ?? "")")
             } catch {
-                errorMessage = "生成失败：\(error.localizedDescription)"; isLoading = false; progressText = ""
+                errorMessage = "生成失败：\(error.localizedDescription)"
+                isLoading = false; progressText = ""
+                print("❌ \(error.localizedDescription)")
             }
         }
     }
