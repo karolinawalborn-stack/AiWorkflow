@@ -44,14 +44,12 @@ struct InternalTextChoice: Decodable, Sendable {
 
 // MARK: - 图片生成
 
-/// 图片生成请求体（对应 /v1/images/generations）
+/// 图片生成请求体（OpenAI 兼容格式，用于 /v1/images/generations）
 struct InternalToolStationImageRequest: Encodable, Sendable {
     let model: String
     let prompt: String
     let n: Int
     let size: String
-
-    /// 返回格式：url / b64_json
     let responseFormat: String
 
     enum CodingKeys: String, CodingKey {
@@ -60,23 +58,137 @@ struct InternalToolStationImageRequest: Encodable, Sendable {
     }
 }
 
-/// 图片生成响应
+/// 灵活图片请求体（用于新接口 /v1/media/generate，字典构造）
+/// 自动包含 prompt、model，其他字段可扩展
+struct FlexibleImageRequestBody: Encodable, Sendable {
+    let model: String
+    let prompt: String
+    let n: Int
+    let size: String
+    /// 额外字段
+    let extra: [String: String]
+
+    init(model: String, prompt: String, n: Int, size: String, extra: [String: String] = [:]) {
+        self.model = model
+        self.prompt = prompt
+        self.n = n
+        self.size = size
+        self.extra = extra
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case model, prompt, n, size
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(prompt, forKey: .prompt)
+        try container.encode(n, forKey: .n)
+        try container.encode(size, forKey: .size)
+        // 额外字段直接写入 JSON 根层
+        for (key, value) in extra {
+            let keyCoding = ExtraCodingKey(stringValue: key)
+            var extraContainer = encoder.container(keyedBy: ExtraCodingKey.self)
+            try extraContainer.encode(value, forKey: keyCoding)
+        }
+    }
+
+    struct ExtraCodingKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+}
+
+/// 图片生成响应（OpenAI 兼容格式）
 struct InternalToolStationImageResponse: Decodable, Sendable {
     let data: [InternalImageData]
 }
 
 struct InternalImageData: Decodable, Sendable {
-    /// URL 形式（responseFormat=url 时返回）
     let url: String?
-    /// base64 形式（responseFormat=b64_json 时返回）
     let b64Json: String?
-    /// API 优化后的提示词
     let revisedPrompt: String?
 
     enum CodingKeys: String, CodingKey {
         case url
         case b64Json = "b64_json"
         case revisedPrompt = "revised_prompt"
+    }
+}
+
+/// 灵活图片响应解析器——兼容多种字段路径
+enum FlexibleImageResponseParser {
+    /// 尝试从原始 JSON Data 中提取图片 URL 或 base64
+    /// 支持的字段路径（按优先级）：
+    ///   - data[0].url / data[0].b64_json     (OpenAI)
+    ///   - data[0].imageUrl / data[0].imageURL
+    ///   - url / imageUrl / imageURL          (顶层字段)
+    ///   - data.url / data.imageUrl           (data 对象)
+    ///   - base64 / data.base64
+    static func parse(from data: Data) -> (url: String?, base64: String?, revisedPrompt: String?) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, nil, nil)
+        }
+
+        print("📦 [FlexibleParser] 原始 JSON keys: \(json.keys.joined(separator: ", "))")
+
+        // 优先: data 数组
+        if let dataArray = json["data"] as? [[String: Any]], let first = dataArray.first {
+            print("📦 [FlexibleParser] data[0] keys: \(first.keys.joined(separator: ", "))")
+            if let url = string(from: first, keys: ["url", "imageUrl", "imageURL"]) {
+                print("📦 [FlexibleParser] 从 data[0].\(fieldName(from: first, keys: ["url", "imageUrl", "imageURL"])) 获取到 URL")
+                return (url, nil, first["revised_prompt"] as? String)
+            }
+            if let b64 = string(from: first, keys: ["b64_json", "base64", "imageBase64"]) {
+                print("📦 [FlexibleParser] 从 data[0] 获取到 base64, 长度=\(b64.count)")
+                return (nil, b64, first["revised_prompt"] as? String)
+            }
+        }
+
+        // 次优: data 是对象
+        if let dataObj = json["data"] as? [String: Any] {
+            print("📦 [FlexibleParser] data(对象) keys: \(dataObj.keys.joined(separator: ", "))")
+            if let url = string(from: dataObj, keys: ["url", "imageUrl", "imageURL"]) {
+                return (url, nil, dataObj["revised_prompt"] as? String)
+            }
+            if let b64 = string(from: dataObj, keys: ["b64_json", "base64", "imageBase64"]) {
+                return (nil, b64, dataObj["revised_prompt"] as? String)
+            }
+        }
+
+        // 最后: 顶层字段
+        if let url = string(from: json, keys: ["url", "imageUrl", "imageURL"]) {
+            print("📦 [FlexibleParser] 从顶层提取到 URL")
+            return (url, nil, json["revised_prompt"] as? String)
+        }
+        if let b64 = string(from: json, keys: ["b64_json", "base64", "imageBase64"]) {
+            print("📦 [FlexibleParser] 从顶层提取到 base64")
+            return (nil, b64, json["revised_prompt"] as? String)
+        }
+
+        print("📦 [FlexibleParser] ❌ 无法从响应中提取图片数据")
+        if let preview = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
+           let str = String(data: preview, encoding: .utf8) {
+            print("📦 [FlexibleParser] 完整响应:\n\(str.prefix(1000))")
+        }
+        return (nil, nil, nil)
+    }
+
+    private static func string(from dict: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let val = dict[key] as? String, !val.isEmpty { return val }
+        }
+        return nil
+    }
+
+    private static func fieldName(from dict: [String: Any], keys: [String]) -> String {
+        for key in keys {
+            if dict[key] as? String != nil { return key }
+        }
+        return keys.first ?? "?"
     }
 }
 

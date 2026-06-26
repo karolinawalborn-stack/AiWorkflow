@@ -38,7 +38,7 @@ final class InternalToolStationTextAdapter: AITextServiceProtocol {
             throw NetworkError.unknown(error)
         }
 
-        let url = config.url(for: "/v1/chat/completions")
+        let url = config.textURL(for: "/v1/chat/completions")
         let request = APIRequest(
             method: .post,
             url: url,

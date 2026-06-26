@@ -7,6 +7,8 @@ final class SettingsViewModel: ObservableObject {
     @Published var apiKey: String
     @Published var textModelID: String
     @Published var imageModelID: String
+    @Published var imageBaseURL: String
+    @Published var imageEndpointPath: String
     @Published var isAPIKeyVisible = false
     @Published var validationResult: String?
     @Published var isValidating = false
@@ -22,6 +24,7 @@ final class SettingsViewModel: ObservableObject {
         let s = UserSettings.load()
         self.apiBaseURL = s.apiBaseURL; self.apiKey = s.apiKey
         self.textModelID = s.textModelID; self.imageModelID = s.imageModelID
+        self.imageBaseURL = s.imageBaseURL; self.imageEndpointPath = s.imageEndpointPath
         let t = AITemplates.load()
         self.topicTemplate = t.topic; self.copyTemplate = t.copywriting; self.promptTemplate = t.imagePrompt
     }
@@ -30,13 +33,16 @@ final class SettingsViewModel: ObservableObject {
 
     func save() {
         var s = UserSettings(); s.apiBaseURL = apiBaseURL; s.apiKey = apiKey
-        s.textModelID = textModelID; s.imageModelID = imageModelID; s.save()
+        s.textModelID = textModelID; s.imageModelID = imageModelID
+        s.imageBaseURL = imageBaseURL; s.imageEndpointPath = imageEndpointPath
+        s.save()
         saveTemplates()
     }
 
     func resetAPIToDefaults() {
         apiBaseURL = UserSettings.defaultBaseURL; apiKey = UserSettings.defaultAPIKey
         textModelID = UserSettings.defaultTextModel; imageModelID = UserSettings.defaultImageModel
+        imageBaseURL = UserSettings.defaultImageBaseURL; imageEndpointPath = UserSettings.defaultImageEndpointPath
     }
 
     // MARK: - 快速测试
@@ -68,7 +74,7 @@ final class SettingsViewModel: ObservableObject {
         guard !apiKey.isEmpty else { validationResult = "请填写Key"; return }
         isValidating = true; validationResult = "🔄 短文本测试中..."
         let start = Date()
-        let config = AIProviderConfig(baseURL: apiBaseURL, token: apiKey, textModelName: textModelID, imageModelName: imageModelID, timeout: 30)
+        let config = AIProviderConfig(baseURL: apiBaseURL, token: apiKey, textModelName: textModelID, imageBaseURL: imageBaseURL, imageEndpointPath: imageEndpointPath, imageModelName: imageModelID, timeout: 30)
         let client = HTTPClient()
         let adapter = InternalToolStationTextAdapter(httpClient: client, config: config)
         do {
@@ -93,9 +99,15 @@ final class SettingsViewModel: ObservableObject {
 
         // 1. 环境信息
         log("📋 当前配置：")
+        log("   文本接口：")
         log("   baseURL = \(apiBaseURL)")
         log("   textModel = \(textModelID)")
+        log("   图片接口：")
+        log("   imageBaseURL = \(imageBaseURL)")
+        log("   imageEndpointPath = \(imageEndpointPath)")
         log("   imageModel = \(imageModelID)")
+        log("   最终图片 URL = \(imageBaseURL.trimmingCharacters(in: .init(charactersIn: "/")))/\(imageEndpointPath.trimmingCharacters(in: .init(charactersIn: "/")))")
+        log("   通用：")
         log("   token = \(apiKey.prefix(12))...")
         log("")
 

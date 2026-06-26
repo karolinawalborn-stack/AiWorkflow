@@ -52,11 +52,26 @@ struct SettingsView: View {
                     }
                 } header: { Text("API 调试").foregroundColor(.secondary) }
 
-                // ── 模型配置 ──
+                // ── 图片接口配置 ──
                 Section {
-                    VStack(alignment: .leading, spacing: 4) { Text("文本模型").font(.caption).foregroundColor(.secondary); TextField("gpt-5.4", text: $vm.textModelID).autocapitalization(.none).disableAutocorrection(true) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("图片 Base URL").font(.caption).foregroundColor(.secondary)
+                        TextField("https://api.lk888.ai", text: $vm.imageBaseURL)
+                            .textContentType(.URL).autocapitalization(.none).disableAutocorrection(true).keyboardType(.URL)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("图片接口路径").font(.caption).foregroundColor(.secondary)
+                        TextField("/v1/media/generate", text: $vm.imageEndpointPath)
+                            .autocapitalization(.none).disableAutocorrection(true)
+                    }
                     VStack(alignment: .leading, spacing: 4) { Text("图片模型").font(.caption).foregroundColor(.secondary); TextField("gpt-image-2", text: $vm.imageModelID).autocapitalization(.none).disableAutocorrection(true) }
-                } header: { Text("模型配置").foregroundColor(.secondary) }
+                } header: { Text("图片接口配置").foregroundColor(.secondary) }
+
+                // ── 文本模型配置 ──
+                Section {
+                    VStack(alignment: .leading, spacing: 4) { Text("文本接口 Base URL").font(.caption).foregroundColor(.secondary); TextField("https://api.lk888.ai/api", text: $vm.apiBaseURL).textContentType(.URL).autocapitalization(.none).disableAutocorrection(true).keyboardType(.URL) }
+                    VStack(alignment: .leading, spacing: 4) { Text("文本模型").font(.caption).foregroundColor(.secondary); TextField("gpt-5.4", text: $vm.textModelID).autocapitalization(.none).disableAutocorrection(true) }
+                } header: { Text("文本接口配置").foregroundColor(.secondary) }
 
                 // ── 三套模板编辑器 ──
                 templateSection(template: $vm.topicTemplate, id: "topic", title: "选题模板")

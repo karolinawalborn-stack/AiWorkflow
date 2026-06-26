@@ -1,17 +1,17 @@
 import Foundation
 
 // ═══════════════════════════════════════════════════════
-//  AI领航局-内部工具站 图片生成适配器
+//  图片生成适配器（适配 /v1/media/generate 接口）
 // ═══════════════════════════════════════════════════════
 //
 //  职责：
 //  1. 接收 AIImageServiceProtocol 调用
-//  2. 构建内部工具站格式的图生请求
-//  3. 发送 HTTP 请求
-//  4. 兼容 URL / base64 / 二进制 三种返回形式
+//  2. 使用 config.imageURLString 构建最终 URL
+//  3. 使用 JSONSerialization 构建灵活请求体
+//  4. 兼容多种返回格式（url / base64 / 自定义字段）
 //  5. 统一输出 ImageGenerationResult
 //
-//  如果内部工具站的图片接口格式变了，只改这个文件。
+//  如果接口格式变了，只改这个文件。
 // ═══════════════════════════════════════════════════════
 
 final class InternalToolStationImageAdapter: AIImageServiceProtocol {
@@ -28,12 +28,14 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
         size: String,
         n: Int
     ) async throws -> [ImageGenerationResult] {
+        let imageURL = config.imageURLString
+
         print("""
-        🌐 [ImageAdapter] generateImage() 被调用!
-           prompt.prefix(200)=\(prompt.prefix(200))
-           size=\(size) n=\(n)
-           model=\(config.imageModelName)
-           baseURL=\(config.url(for: "/v1/images/generations"))
+        🌐 [ImageAdapter] ===== generateImage() =====
+           endpoint: POST \(imageURL)
+           model: \(config.imageModelName)
+           prompt: \(prompt.prefix(200))
+           size: \(size)  n: \(n)
         """)
 
         guard !config.imageModelName.isEmpty else {
@@ -41,94 +43,88 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
             throw NetworkError.missingBaseURL
         }
 
-        // ── 1. 先请求 base64 格式（最通用） ──
-        var results = try await requestImages(
-            prompt: prompt,
-            size: size,
-            n: n,
-            responseFormat: "b64_json"
-        )
-
-        // ── 2. 如果 base64 全部失败，回退到 URL 格式 ──
-        if results.allSatisfy({ $0.imageData == nil }) {
-            print("🌐 [ImageAdapter] base64 全空，回退到 URL 格式")
-            results = try await requestImages(
-                prompt: prompt,
-                size: size,
-                n: n,
-                responseFormat: "url"
-            )
+        guard !imageURL.isEmpty else {
+            print("🌐 ❌ imageURL 为空!")
+            throw NetworkError.invalidURL("图片接口 URL 未配置")
         }
 
-        print("🌐 [ImageAdapter] 最终结果: \(results.count) 条, 有 data=\(results.filter { $0.imageData != nil }.count)")
-        return results
-    }
+        // ── 构建请求体（可扩展字典） ──
+        var bodyDict: [String: Any] = [
+            "model": config.imageModelName,
+            "prompt": prompt,
+            "n": n,
+            "size": size,
+        ]
+        // 某些接口需要 response_format 字段
+        bodyDict["response_format"] = "b64_json"
 
-    /// 以指定格式请求图片
-    private func requestImages(
-        prompt: String,
-        size: String,
-        n: Int,
-        responseFormat: String
-    ) async throws -> [ImageGenerationResult] {
-        let body = InternalToolStationImageRequest(
-            model: config.imageModelName,
-            prompt: prompt,
-            n: n,
-            size: size,
-            responseFormat: responseFormat
-        )
+        let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        print("""
+        🌐 [ImageAdapter] 请求体 (\(bodyData.count) bytes):
+           \(String(data: bodyData, encoding: .utf8)?.prefix(500) ?? "N/A")
+        """)
 
-        let bodyData = try JSONEncoder().encode(body)
-
-        let url = config.url(for: "/v1/images/generations")
         let request = APIRequest(
             method: .post,
-            url: url,
+            url: imageURL,
             headers: config.authHeaders,
             body: bodyData,
             timeout: config.timeout
         )
 
         print("""
-        🌐 [ImageAdapter] requestImages(\(responseFormat)):
-           method=\(request.method.rawValue) url=\(request.url)
-           model=\(config.imageModelName)
-           body 大小=\(bodyData.count) bytes
-           headers 包含 Authorization=\(request.headers["Authorization"] != nil)
-           timeout=\(config.timeout)s
+        🌐 [ImageAdapter] 即将发送请求:
+           URL: \(request.url)
+           Method: \(request.method.rawValue)
+           Auth: \(request.headers["Authorization"] != nil ? "✅" : "❌ 无 Token")
+           Timeout: \(config.timeout)s
         """)
 
-        let response: InternalToolStationImageResponse = try await httpClient.send(request)
+        // ── 发请求 ──
+        let rawData = try await httpClient.sendRaw(request)
 
-        print("🌐 [ImageAdapter] 请求成功: data.count=\(response.data.count)")
-        for (i, item) in response.data.enumerated() {
-            print("   result[\(i)]: url=\(item.url ?? "nil") b64=\(item.b64Json != nil ? "\(item.b64Json!.prefix(30))..." : "nil")")
+        print("🌐 [ImageAdapter] 原始响应大小: \(rawData.count) bytes")
+        if let rawStr = String(data: rawData, encoding: .utf8) {
+            print("🌐 [ImageAdapter] 原始响应前1000字: \(rawStr.prefix(1000))")
         }
 
-        // 如果是 URL 格式，下载每张图片的二进制数据
-        if responseFormat == "url" {
-            return try await convertURLResults(response.data)
-        } else {
-            return response.data.map { ImageGenerationResult(from: $0) }
-        }
-    }
+        // ── 灵活解析返回 ──
+        let parsed = FlexibleImageResponseParser.parse(from: rawData)
+        print("""
+        🌐 [ImageAdapter] 解析结果:
+           url=\(parsed.url ?? "nil")
+           hasBase64=\(parsed.base64 != nil)
+           revisedPrompt=\(parsed.revisedPrompt?.prefix(100) ?? "nil")
+        """)
 
-    /// URL 格式：逐个下载图片二进制
-    private func convertURLResults(_ items: [InternalImageData]) async throws -> [ImageGenerationResult] {
-        var results: [ImageGenerationResult] = []
-        for item in items {
-            if let urlStr = item.url, let url = URL(string: urlStr) {
-                let request = URLRequest(url: url, timeoutInterval: config.timeout)
-                if let (data, _) = try? await URLSession.shared.data(for: request) {
-                    results.append(ImageGenerationResult(from: item, downloadURLData: data))
-                } else {
-                    results.append(ImageGenerationResult(from: item))
-                }
+        // 构造 ImageGenerationResult
+        var imageData: Data? = nil
+        if let b64 = parsed.base64 {
+            imageData = Data(base64Encoded: b64)
+            print("🌐 [ImageAdapter] base64 解码: \(imageData?.count ?? 0) bytes")
+        }
+        if imageData == nil, let urlStr = parsed.url, let url = URL(string: urlStr) {
+            print("🌐 [ImageAdapter] 开始下载 URL 图片: \(urlStr)")
+            if let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: config.timeout)) {
+                imageData = data
+                print("🌐 [ImageAdapter] URL 下载成功: \(data.count) bytes")
             } else {
-                results.append(ImageGenerationResult(from: item))
+                print("🌐 [ImageAdapter] URL 下载失败")
             }
         }
-        return results
+
+        let result = ImageGenerationResult(
+            imageData: imageData,
+            imageURL: parsed.url,
+            revisedPrompt: parsed.revisedPrompt
+        )
+
+        print("🌐 [ImageAdapter] 最终结果: imageData=\(result.imageData?.count ?? 0) bytes, imageURL=\(result.imageURL ?? "nil")")
+
+        if imageData == nil {
+            print("🌐 [ImageAdapter] ⚠️ 所有解析方式都未获取到图片数据")
+        }
+
+        return [result]
     }
 }
