@@ -1,30 +1,148 @@
 import Foundation
 
 // ═══════════════════════════════════════════════════════
-//  提示词模板存储模型
+//  可编辑模板系统
 // ═══════════════════════════════════════════════════════
 //
-//  每个模板对应一个工作流步骤的 System Prompt。
-//  存储在 UserDefaults，设置页可编辑。
-//  首次安装自动注入默认模板。
+//  数据结构：
+//    PromptTemplate          ← 一套模板（正文 + 变量列表）
+//    ├── body: String        ← 模板正文，含 {{variable}} 占位符
+//    └── variables: []       ← 变量列表
+//         ├── key            ← 变量名（对应 {{key}}）
+//         ├── label          ← 显示名
+//         └── value          ← 当前值
+//
+//  PromptTemplates           ← 三套模板的容器
+//  PromptTemplateRenderer    ← 渲染器：{{key}} → value
+//
+//  设置页可以看到和编辑：
+//  1. 模板正文（TextEditor）
+//  2. 变量列表（key-value 对）
+//  3. 最终 prompt 预览
+//  4. 恢复默认按钮
 // ═══════════════════════════════════════════════════════
 
-/// 三套模板的容器
+// MARK: - 单个变量
+
+struct PromptTemplateVariable: Codable, Equatable, Sendable, Identifiable {
+    var id: String { key }
+    let key: String
+    var label: String
+    var value: String
+    let defaultValue: String
+
+    init(key: String, label: String, value: String, defaultValue: String? = nil) {
+        self.key = key
+        self.label = label
+        self.value = value
+        self.defaultValue = defaultValue ?? value
+    }
+}
+
+// MARK: - 单套模板
+
+struct PromptTemplate: Codable, Equatable, Sendable {
+    let id: String
+    var name: String
+    var body: String
+    var variables: [PromptTemplateVariable]
+    let defaultBody: String
+    let defaultVariables: [PromptTemplateVariable]
+
+    init(id: String, name: String, body: String, variables: [PromptTemplateVariable]) {
+        self.id = id
+        self.name = name
+        self.body = body
+        self.variables = variables
+        self.defaultBody = body
+        self.defaultVariables = variables
+    }
+
+    /// 渲染最终 prompt（替换所有 {{key}}）
+    func render() -> String {
+        var result = body
+        for v in variables {
+            result = result.replacingOccurrences(of: "{{\(v.key)}}", with: v.value)
+        }
+        return result
+    }
+
+    /// 恢复默认正文
+    func resetBody() -> PromptTemplate {
+        var t = self
+        t.body = defaultBody
+        return t
+    }
+
+    /// 恢复默认变量
+    func resetVariables() -> PromptTemplate {
+        var t = self
+        t.variables = defaultVariables.map { PromptTemplateVariable(key: $0.key, label: $0.label, value: $0.defaultValue, defaultValue: $0.defaultValue) }
+        return t
+    }
+}
+
+// MARK: - 三套模板容器
+
 struct PromptTemplates: Codable, Equatable, Sendable {
-    var topic: String
-    var copywriting: String
-    var imagePrompt: String
+    var topic: PromptTemplate
+    var copywriting: PromptTemplate
+    var imagePrompt: PromptTemplate
+}
 
-    static let `default` = PromptTemplates(
-        topic: Self.defaultTopicTemplate,
-        copywriting: Self.defaultCopyTemplate,
-        imagePrompt: Self.defaultImagePromptTemplate
-    )
+// MARK: - 渲染器
 
-    // MARK: - UserDefaults 存取
+struct PromptTemplateRenderer {
+    /// 渲染指定模板
+    static func render(_ template: PromptTemplate) -> String {
+        template.render()
+    }
 
-    private static let storageKey = "prompt_templates_v2"
-    private static let injectedFlag = "default_templates_injected"
+    /// 渲染并打印调试信息
+    static func debugRender(_ template: PromptTemplate) -> String {
+        let result = template.render()
+        print("[TemplateRenderer] 渲染 \(template.name):")
+        print("[TemplateRenderer] 正文长度: \(template.body.count) 字符")
+        print("[TemplateRenderer] 变量数: \(template.variables.count)")
+        for v in template.variables {
+            print("[TemplateRenderer]   {{\(v.key)}} = \(v.value.prefix(50))...")
+        }
+        return result
+    }
+}
+
+// MARK: - 默认模板
+
+extension PromptTemplates {
+    static let `default`: PromptTemplates = {
+        PromptTemplates(
+            topic: PromptTemplate(
+                id: "topic",
+                name: "选题模板",
+                body: defaultTopicBody,
+                variables: defaultTopicVariables
+            ),
+            copywriting: PromptTemplate(
+                id: "copywriting",
+                name: "文案模板",
+                body: defaultCopyBody,
+                variables: defaultCopyVariables
+            ),
+            imagePrompt: PromptTemplate(
+                id: "imagePrompt",
+                name: "生图提示词模板",
+                body: defaultImagePromptBody,
+                variables: defaultImagePromptVariables
+            )
+        )
+    }()
+}
+
+// MARK: - UserDefaults 存取
+
+extension PromptTemplates {
+    private static let storageKey = "prompt_templates_v3"
+    private static let injectedFlag = "prompt_templates_v3_injected"
 
     static func load() -> PromptTemplates {
         if !UserDefaults.standard.bool(forKey: Self.injectedFlag) {
@@ -52,51 +170,27 @@ struct PromptTemplates: Codable, Equatable, Sendable {
 }
 
 // MARK: - ═══════════════════════════════════════════════
-//  默认模板内容（按用户提供的完整原文保存）
+//  模板正文（含 {{variable}} 占位符）
 // ═══════════════════════════════════════════════════════
 
 extension PromptTemplates {
 
-    // ────────── 1. 选题默认提示词模板 ──────────
+    // ────────── 1. 选题模板正文 ──────────
 
-    static let defaultTopicTemplate = """
-你现在是一个抖音爆款情绪图文账号的选题策划专家，请围绕"成年人关系清醒 + 人性认知 + 情绪反转"这个账号定位，帮我策划适合做成 5-6 张图一组的爆款选题。
+    static let defaultTopicBody = """
+你现在是一个抖音爆款情绪图文账号的选题策划专家，请围绕"{{account_style}}"这个账号定位，帮我策划适合做成{{topic_count}}张图一组的爆款选题。
 
 我的内容形式是：
-- 一个作品由 5-6 张图组成
-- 每张图比例为 3:4 竖版
-- 每张图内部为上下双格漫画
-- 上半格偏委屈、压抑、被误解、被消耗、被否定、被针对
-- 下半格偏清醒、反击、觉醒、离开、拒绝、翻脸、止损
-- 图片里会直接带文案字幕框
-- 内容适合抖音图文轮播发布
+{{format}}
 
 账号风格要求：
-- 扎心
-- 现实
-- 清醒
-- 克制
-- 锋利
-- 强共鸣
-- 强传播
-- 一眼能懂
-- 适合 25-45 岁成年人
+{{account_tone}}
 
 选题方向优先围绕：
-1. 爱情与婚姻清醒
-2. 亲情与原生家庭委屈
-3. 职场压榨与反击
-4. 讨好型人格与边界感
-5. 人性真相与关系本质
-6. 女性成长与清醒离场
+{{topic_directions}}
 
 选题要求：
-1. 每个选题都必须适合拆成 5-6 张图，不是一句话就讲完。
-2. 每个选题都必须自带明显冲突，天然适合"上半格受压、下半格反转"的结构。
-3. 每个选题都必须有现实场景感，比如餐桌、客厅、门口、卧室、办公室、会议室、走廊等。
-4. 每个选题都要适合做成"情绪短剧封面感"的双格漫画，而不是空泛鸡汤。
-5. 优先给我容易爆、容易持续、更适合批量连更的选题。
-6. 不要太文艺，不要太哲学，不要过于小众，不要只有情绪没有观点。
+{{requirements}}
 
 请输出 50 个选题，并按以下格式输出：
 
@@ -121,51 +215,33 @@ extension PromptTemplates {
 4. 最值得优先做的前 5 个选题，并说明原因
 """
 
-    // ────────── 2. 文案默认提示词模板 ──────────
+    static let defaultTopicVariables: [PromptTemplateVariable] = [
+        PromptTemplateVariable(key: "account_style", label: "账号风格定位", value: "成年人关系清醒 + 人性认知 + 情绪反转"),
+        PromptTemplateVariable(key: "topic_count", label: "每组图数", value: "5-6"),
+        PromptTemplateVariable(key: "format", label: "内容形式", value: "- 一个作品由 5-6 张图组成\n- 每张图比例为 3:4 竖版\n- 每张图内部为上下双格漫画\n- 上半格偏委屈、压抑、被误解、被消耗、被否定、被针对\n- 下半格偏清醒、反击、觉醒、离开、拒绝、翻脸、止损\n- 图片里会直接带文案字幕框\n- 内容适合抖音图文轮播发布"),
+        PromptTemplateVariable(key: "account_tone", label: "账号风格", value: "- 扎心\n- 现实\n- 清醒\n- 克制\n- 锋利\n- 强共鸣\n- 强传播\n- 一眼能懂\n- 适合 25-45 岁成年人"),
+        PromptTemplateVariable(key: "topic_directions", label: "选题方向", value: "1. 爱情与婚姻清醒\n2. 亲情与原生家庭委屈\n3. 职场压榨与反击\n4. 讨好型人格与边界感\n5. 人性真相与关系本质\n6. 女性成长与清醒离场"),
+        PromptTemplateVariable(key: "requirements", label: "选题要求", value: "1. 每个选题都必须适合拆成 5-6 张图，不是一句话就讲完。\n2. 每个选题都必须自带明显冲突，天然适合"上半格受压、下半格反转"的结构。\n3. 每个选题都必须有现实场景感，比如餐桌、客厅、门口、卧室、办公室、会议室、走廊等。\n4. 每个选题都要适合做成"情绪短剧封面感"的双格漫画，而不是空泛鸡汤。\n5. 优先给我容易爆、容易持续、更适合批量连更的选题。\n6. 不要太文艺，不要太哲学，不要过于小众，不要只有情绪没有观点。"),
+    ]
 
-    static let defaultCopyTemplate = """
-你现在是一个抖音爆款双格漫画文案策划专家，请围绕我给出的选题，创作一组适合 5-6 张图发布的上下双格漫画文案。
+    // ────────── 2. 文案模板正文 ──────────
+
+    static let defaultCopyBody = """
+你现在是一个抖音爆款双格漫画文案策划专家，请围绕我给出的选题，创作一组适合 {{image_count}} 张图发布的上下双格漫画文案。
 
 我的内容形式是：
-- 一个作品共 6 张图
-- 每张图比例为 3:4 竖版
-- 每张图内部为上下双格
-- 图片里直接带文案字幕框
-- 所以每个半格文案必须短、狠、清晰、适合直接上图
+{{format}}
 
 账号定位：
-- 成年人关系清醒
-- 人性认知
-- 情绪反转
-- 扎心、现实、通透、克制、锋利
-- 适合抖音图文轮播爆款内容
+{{account_positioning}}
 
 文案要求：
-1. 一共输出 6 张图，每张图都包含：
-   - 上半格文案
-   - 下半格文案
-   - 这一张的作用
-2. 6 张图整体必须有明显递进：
-   - 第1张：钩子最强，快速打中痛点
-   - 第2张：具体场景，让人代入
-   - 第3张：继续放大委屈和不公平
-   - 第4张：点破关系本质或人性真相
-   - 第5张：开始清醒和态度转变
-   - 第6张：彻底反转，用金句收尾
-3. 每张图内部也必须有反差：
-   - 上半格偏受压、隐忍、委屈、受伤、被消耗
-   - 下半格偏反击、清醒、觉醒、拒绝、离开、止损
-4. 每个半格文案控制在 6-12 个字，尽量不要超过 14 个字。
-5. 文案必须短句化、结论化、适合直接生成在图片里。
-6. 不要写成长段散文，不要空泛鸡汤，不要过度抒情，不要作文腔。
-7. 文案要让用户有"这说的不就是我""太真实了""被一下戳中"的感觉。
-8. 默认优先生成更容易爆的表达，而不是过于温和的表达。
-9. 如果我给的选题太大，请自动收窄到最适合双格漫画传播的角度。
+{{copy_requirements}}
 
 请按以下格式输出：
 
 【选题】
-XXX
+{{selected_topic}}
 
 【内容方向判断】
 自动判断这个题更适合做成：婚姻情感 / 爱情关系 / 职场压榨 / 亲情委屈 / 人性清醒 / 讨好型人格
@@ -223,12 +299,20 @@ XXX
 如果不够，请自动优化后再给最终版本。
 
 我这次的选题是：
-"XXX"
+"{{selected_topic}}"
 """
 
-    // ────────── 3. 生图默认提示词模板 ──────────
+    static let defaultCopyVariables: [PromptTemplateVariable] = [
+        PromptTemplateVariable(key: "image_count", label: "每组图数", value: "6"),
+        PromptTemplateVariable(key: "selected_topic", label: "当前选题", value: "待生成"),
+        PromptTemplateVariable(key: "format", label: "内容形式", value: "- 一个作品共 6 张图\n- 每张图比例为 3:4 竖版\n- 每张图内部为上下双格\n- 图片里直接带文案字幕框\n- 所以每个半格文案必须短、狠、清晰、适合直接上图"),
+        PromptTemplateVariable(key: "account_positioning", label: "账号定位", value: "- 成年人关系清醒\n- 人性认知\n- 情绪反转\n- 扎心、现实、通透、克制、锋利\n- 适合抖音图文轮播爆款内容"),
+        PromptTemplateVariable(key: "copy_requirements", label: "文案要求", value: "1. 一共输出 6 张图，每张图都包含上下半格文案和这一张的作用\n2. 6 张图整体必须有明显递进：钩子→场景→委屈加深→点破本质→开始清醒→金句收尾\n3. 每张图内部必须有反差：上半格受压，下半格反击\n4. 每个半格文案控制在 6-12 个字，尽量不超过 14 个字\n5. 文案必须短句化、结论化、适合直接生成在图片里\n6. 不要写成长段散文，不要空泛鸡汤，不要过度抒情\n7. 文案要让用户有"这说的不就是我"的感觉\n8. 优先生成更容易爆的表达"),
+    ]
 
-    static let defaultImagePromptTemplate = """
+    // ────────── 3. 生图提示词模板正文 ──────────
+
+    static let defaultImagePromptBody = """
 你现在是一个专门为 GPT Image 2 服务的"抖音爆款双格漫画导演级生图提示词专家"。
 
 你的任务是：
@@ -238,7 +322,7 @@ XXX
 3. 自动补足人物关系、动作、道具、灯光、站位、情绪反差
 4. 自动选择最有传播感的戏剧瞬间
 5. 自动优化字幕呈现方式，避免书面腔、避免结尾标点、避免排版难看
-6. 自动固定为"细白留白边框"的标准双格漫画页版式
+6. 自动固定为"{{page_style}}"的标准双格漫画页版式
 7. 最终只输出一条完整成品提示词
 
 【重要规则】
@@ -250,173 +334,84 @@ XXX
 - 不要输出分析过程，不要解释，不要多版本
 
 【图片形式】
-- 比例固定为 3:4 竖版
+- 比例固定为 {{image_ratio}} 竖版
 - 单张图
 - 图内为上下双格漫画结构
-- 整张图采用"细白留白边框"的标准双格漫画页版式
-- 整张图四周必须有清晰可见的白色留白外边框，边框宽度适中偏细，和参考图一致
-- 上下两格之间必须有一条清晰可见的白色留白分隔边框，宽度与外边框接近，整体统一
-- 外边框和中间白色分隔边框都必须稳定存在，不能缺失，不能弱化到看不见
-- 白边是"留白边框"，不是黑边，不是描边线，不是大面积装裱边
-- 白边宽度要像标准双格漫画页：清晰、规整、好看，但不能过厚
-- 画面主体应尽量铺满分镜内部区域，白边只负责版式划分，不抢主体
-- 不允许画面直接贴到最外缘，必须保留完整白边
-- 每格都像一个完整戏剧瞬间，而不是普通插画
-- 适合手机端抖音图文轮播观看
-
-【核心目标】
-生成的画面必须满足：
-- 一眼能看懂冲突
-- 一眼能看懂人物关系强弱
-- 一眼能看懂情绪反转
-- 每张图都必须有一个明显视觉爆点
-- 不是"好看"优先，而是"停留感、传播感、故事钩子"优先
-- 要像情绪短剧封面，而不是普通漫画插画
+- 整张图采用"{{page_style}}"的标准双格漫画页版式
+- 外围白色留白边框必须完整可见
+- 中间白色留白分隔边框必须完整可见
 
 【成片风格】
-- 只采用深蓝黑压抑情绪漫画路线
-- 冷蓝黑色调，局部高光
-- 手绘漫画 + graphic novel 质感
-- 钢笔排线，强阴影，电影级打光
-- 情绪压抑，构图戏剧化，环境真实
-- 不要做成纯观点海报
-- 不要做成极简贴纸图
-- 不要做成轻松可爱风
-- 不要做成低幼卡通风
+{{visual_style}}
 
 【人物设定】
-- 主角固定为极简白色圆头小人，头大身细，五官极简，但表情和肢体必须清晰有情绪
-- 配角为半写实成年人，五官清晰，姿态自然，但压迫感强
-- 上下两格主角必须是同一形象
-- 尽量保持"一强一弱"的人物关系表达：一站一坐、一近一远、一亮一暗、一动一静
-- 主角必须更有代入感，配角必须更有现实压迫感
+{{character_setting}}
 
 【自动判断方向规则】
-当我只给文案时，你必须自动判断最适合的方向，并优先按最容易爆的方向生成：
-
-1. 如果文案涉及这些特征：
-心软、懂事、善良、厚道、重情重义、心思细腻、总退让、太讲道理、总替别人考虑
-优先判断为：婚姻情感 / 爱情关系 / 人性清醒 / 讨好型人格
-
-2. 如果文案涉及这些特征：
-工作能力强、能干、负责、加班、忍让、背锅、吃苦、老实、能力强
-优先判断为：职场压榨 / 职场反击 / 能者多劳型冲突
-
-3. 如果文案涉及这些特征：
-父母、家里、亲人、偏心、懂事的孩子、受委屈、不被理解
-优先判断为：亲情关系 / 原生家庭 / 家庭压制与觉醒
-
-4. 如果文案本身比较抽象，你要自动选择最适合"先受压、再反转"的方向，不要做空泛哲理图，不要做成纯抽象概念图。
+{{direction_rules}}
 
 【自动选场景规则】
-当我不提供场景时，你必须自动选择最适合文案、最容易爆、最具传播感的场景，优先使用以下高爆模板：
-
-1. 餐桌羞辱 → 门口离开
-适合：婚姻、情感、失望、果决、清醒离场
-
-2. 客厅指责 → 门口反击
-适合：善良、厚道、隐忍、争执、翻脸
-
-3. 办公室压榨 → 会议室拍桌
-适合：工作能力强、老实、能干、忍让、背锅
-
-4. 深夜冷暴力 → 收拾行李离开
-适合：婚姻失望、关系破裂、彻底死心
-
-5. 家庭偏心 → 起身离席
-适合：亲情委屈、原生家庭、不被理解
-
-6. 被利用被消耗 → 当场止损
-适合：重情重义、心软、善良、总付出
-
-如果文案明显更适合某一种模板，就优先套用那一种，而不是平均发挥。
-如果文案可以对应多个方向，优先选择视觉冲突最强、最容易形成抖音停留感的方案。
+{{scene_rules}}
 
 【分镜设计原则】
-- 上半格必须表现"被压制、被羞辱、被忽视、被误解、被消耗、被针对"的具体瞬间
-- 下半格必须表现"翻脸、离开、反击、拒绝、转身、掀桌、指回去、态度反转"的具体瞬间
-- 下半格的冲击力必须明显强于上半格
-- 不要抽象表达文案，要转成最有传播力的戏剧动作
-- 优先选"最容易一眼看懂"的瞬间，而不是完整叙事
-- 每格都要有明确主体，不要多人平均分散注意力
+{{frame_design_rules}}
 
 【爆点强制要求】
 每张图必须至少包含以下元素中的 3 个：
-- 强动作：指责、拍桌、倒酒、甩文件、拖行李箱、开门离开、站起反击、伸手阻止、转身离场、手指回怼
-- 强道具：礼物盒、红酒、烛光晚餐、文件堆、飞散纸张、行李箱、门外强光、空酒杯、散落餐具、账单、手机、购物袋
-- 强站位：一人坐着挨骂、一人站着压迫；一人走向门口、一人留在原地；一人低头、一人指着；一人近景、一人远景
-- 强灯光：门口逆光、头顶单灯、桌面烛光、侧面冷光、窗边月光
-- 强残局：散落文件、打翻椅子、餐桌凌乱、地面碎片、纸张飞起、门开着留下长阴影
+{{explosion_elements}}
 
 【文案与画面关系】
 - 文案不是装饰，必须和动作强绑定
 - 上半格文案要对应"受压瞬间"
 - 下半格文案要对应"反转瞬间"
 - 如果文案抽象，你要自动把它翻译成最具体、最容易爆的生活冲突场景
-- 默认优先选择"最能传播的画面"，而不是"最忠于字面"的画面
 
 【字幕要求】
 - 图片里直接生成文字
 - 每个分镜底部中央都放一个白色圆角矩形字幕框
-- 字幕框内为黑色粗体中文
-- 上半格字幕内容必须完全等于我给的上半格文案
-- 下半格字幕内容必须完全等于我给的下半格文案
+- 上半格字幕内容必须完全等于我给的上半格文案：{{top_caption}}
+- 下半格字幕内容必须完全等于我给的下半格文案：{{bottom_caption}}
 - 文字尽量单行显示，中文清晰、工整、居中排版
 - 字幕框统一样式，不遮挡人物主要动作和表情
-- 字幕必须采用"短视频封面标题式短句"风格，而不是书面正文句子
 - 默认不添加任何结尾标点符号
-- 不要句号、逗号、感叹号、问号、省略号、引号、书名号、冒号、分号
 - 如果我给出的文案里自带标点，请自动去掉标点后再用于图片字幕
-- 不要错别字
-- 不要乱码
-- 不要英文
-- 不要手写体
-- 不要歪斜排版
 
 【构图要求】
-- 适合 3:4 手机轮播图观看
+- 适合 {{image_ratio}} 手机轮播图观看
 - 主体足够大，人物不要太小
 - 每格都要有清晰视觉中心
 - 画面要像"情绪短剧封面"
-- 不要平均，不要平淡，不要只是普通站着说话
-- 优先选择最能制造停留感的瞬间，而不是完整叙事
 - 保证字幕框与主体动作不打架
-- 外围白色留白边框必须完整可见
-- 中间白色留白分隔边框必须完整可见
-- 外边框和中间分隔边框宽度要像参考图一样：细而清晰，不能太厚，也不能细到消失
-- 版式效果必须接近标准双格漫画页，而不是黑边海报，也不是厚白边装裱页
 
 【参考图规则】
-若我上传参考图，则：
-- 参考其分镜节奏、色调、人物关系、字幕框样式、灯光和视觉冲突逻辑
-- 不复制具体人物身份和五官
-- 忽略模糊、打码、遮挡的人脸
-- 不照搬动作和原文案
-- 只提取其"先受压、再反转"的爆款视觉结构
-- 优先学习参考图中"细白留白外边框 + 中间白色留白分隔边框"的版式比例
+若我上传参考图，则参考其分镜节奏、色调、人物关系、字幕框样式，不复制具体人物身份和五官。
 
 【输出规则】
-你只输出：
-1. 一段可直接复制给 GPT Image 2 的最终中文生图提示词
-2. 不要解释
-3. 不要分析
-4. 不要多版本
-5. 默认给最容易爆的画面方案
-6. 不要把"方向判断过程"写出来，只把判断结果融入最终提示词里
-7. 最终输出必须是一整段成品提示词，不要再加说明性前缀
+你只输出一段可直接复制给 GPT Image 2 的最终中文生图提示词。不要解释，不要分析，不要多版本。
 
 【默认负面限制】
-不要：文字乱码、中文错字、英文替代中文、手写体、歪斜排版、水印、logo、签名、额外分镜、多余人物抢镜、Q版萌系、低幼卡通风、暖色调、艳丽高饱和配色、血腥暴力、恐怖元素、畸形手脚、扭曲五官、模糊人脸、杂乱背景、主体太小、构图失衡、动作平淡、情绪不明确、场景空洞、像普通插画而不是戏剧海报、自动添加结尾标点、字幕框遮挡主体、没有白色外边框、没有白色中间分隔边框、白边细到看不见、白边过厚、白边占比过大、黑色外边框、纯黑分隔线、画面贴满外缘没有留白边框、版式像海报而不是标准双格漫画页。
+{{negative_restrictions}}
 
 【我的输入格式】
-我会这样给你：
-【上半格】文案：XXX
-【下半格】文案：XXX
-
-可选附加项：
-【参考图】已上传
-【补充要求】XXX
+【上半格】文案：{{top_caption}}
+【下半格】文案：{{bottom_caption}}
+可选附加项：{{extra_requirements}}
 
 你收到后，直接生成最终生图提示词。
 """
+
+    static let defaultImagePromptVariables: [PromptTemplateVariable] = [
+        PromptTemplateVariable(key: "image_ratio", label: "图片比例", value: "3:4"),
+        PromptTemplateVariable(key: "page_style", label: "版式风格", value: "细白留白边框"),
+        PromptTemplateVariable(key: "visual_style", label: "成片风格", value: "- 只采用深蓝黑压抑情绪漫画路线\n- 冷蓝黑色调，局部高光\n- 手绘漫画 + graphic novel 质感\n- 钢笔排线，强阴影，电影级打光\n- 情绪压抑，构图戏剧化，环境真实\n- 不要做成纯观点海报/极简贴纸图/轻松可爱风/低幼卡通风"),
+        PromptTemplateVariable(key: "character_setting", label: "人物设定", value: "- 主角固定为极简白色圆头小人，头大身细，五官极简，但表情和肢体必须清晰有情绪\n- 配角为半写实成年人，五官清晰，姿态自然，但压迫感强\n- 上下两格主角必须是同一形象\n- 尽量保持一强一弱的人物关系表达：一站一坐、一近一远、一亮一暗、一动一静"),
+        PromptTemplateVariable(key: "direction_rules", label: "方向判断规则", value: "1. 心软/懂事/善良/厚道/重情重义/总退让 → 婚姻情感/爱情关系/人性清醒/讨好型人格\n2. 工作能力强/能干/负责/加班/忍让/背锅 → 职场压榨/职场反击\n3. 父母/家里/亲人/偏心/懂事的孩子/受委屈 → 亲情关系/原生家庭\n4. 抽象的 → 自动选最适合先受压再反转的方向"),
+        PromptTemplateVariable(key: "scene_rules", label: "场景规则", value: "1. 餐桌羞辱→门口离开（婚姻/情感/失望）\n2. 客厅指责→门口反击（善良/厚道/隐忍/翻脸）\n3. 办公室压榨→会议室拍桌（工作能力强/老实/背锅）\n4. 深夜冷暴力→收拾行李离开（婚姻失望/彻底死心）\n5. 家庭偏心→起身离席（亲情委屈/不被理解）\n6. 被利用被消耗→当场止损（重情重义/心软/善良）"),
+        PromptTemplateVariable(key: "frame_design_rules", label: "分镜设计原则", value: "- 上半格必须表现被压制、被羞辱、被忽视、被误解的具体瞬间\n- 下半格必须表现翻脸、离开、反击、拒绝、转身的具体瞬间\n- 下半格的冲击力必须明显强于上半格\n- 优先选最容易一眼看懂的瞬间，而不是完整叙事"),
+        PromptTemplateVariable(key: "explosion_elements", label: "爆点要素", value: "- 强动作：指责、拍桌、倒酒、甩文件、拖行李箱、开门离开、站起反击\n- 强道具：礼物盒、红酒、文件堆、行李箱、门外强光、空酒杯、散落餐具\n- 强站位：一站一坐、一近一远、一亮一暗、一动一静\n- 强灯光：门口逆光、头顶单灯、桌面烛光、侧面冷光\n- 强残局：散落文件、打翻椅子、餐桌凌乱、地面碎片"),
+        PromptTemplateVariable(key: "negative_restrictions", label: "负面限制", value: "不要：文字乱码、中文错字、英文替代中文、手写体、水印、logo、签名、Q版萌系、低幼卡通风、暖色调、高饱和配色、血腥暴力、恐怖元素、畸形手脚、扭曲五官、模糊人脸、杂乱背景、主体太小、构图失衡、动作平淡、情绪不明确、场景空洞、没有白色外边框、没有中间分隔边框、白边过厚或过细、黑色边框、纯黑分隔线、画面贴满外缘"),
+        PromptTemplateVariable(key: "top_caption", label: "上半格文案（自动替换）", value: "待输入"),
+        PromptTemplateVariable(key: "bottom_caption", label: "下半格文案（自动替换）", value: "待输入"),
+        PromptTemplateVariable(key: "extra_requirements", label: "补充要求", value: "无"),
+    ]
 }

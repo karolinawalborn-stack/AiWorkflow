@@ -25,7 +25,15 @@ final class PromptViewModel: ObservableObject {
             "图\($0.cardIndex + 1)上:\($0.topFrame) | 下:\($0.bottomFrame)"
         }.joined(separator: "\n")
 
-        let systemPrompt = PromptTemplates.load().imagePrompt
+        var imgTemplate = PromptTemplates.load().imagePrompt
+        // 注入文案变量
+        if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "top_caption" }) {
+            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.topFrame }.joined(separator: " | ")
+        }
+        if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "bottom_caption" }) {
+            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.bottomFrame }.joined(separator: " | ")
+        }
+        let systemPrompt = imgTemplate.render()
         let userMessage = "IP:\(p.ipStyle)\n比例:\(p.ratio)\n文案:\n\(cardsText)"
         Task {
             do {

@@ -12,9 +12,10 @@ final class SettingsViewModel: ObservableObject {
     @Published var isValidating = false
 
     // 三套模板
-    @Published var topicTemplate: String
-    @Published var copyTemplate: String
-    @Published var promptTemplate: String
+    @Published var topicTemplate: PromptTemplate
+    @Published var copyTemplate: PromptTemplate
+    @Published var promptTemplate: PromptTemplate
+    @Published var showPreviewFor: String? = nil  // 当前预览哪套模板
 
     init() {
         let s = UserSettings.load()
@@ -31,19 +32,15 @@ final class SettingsViewModel: ObservableObject {
 
     func save() {
         var s = UserSettings(); s.apiBaseURL = apiBaseURL; s.apiKey = apiKey
-        s.textModelID = textModelID; s.imageModelID = imageModelID
-        s.save()
+        s.textModelID = textModelID; s.imageModelID = imageModelID; s.save()
+        saveTemplates()
     }
 
-    func resetToDefaults() {
+    func resetAPIToDefaults() {
         apiBaseURL = UserSettings.defaultBaseURL
-        apiKey = UserSettings.defaultAPIKey     // 恢复为 AI领航局预填 Key
+        apiKey = UserSettings.defaultAPIKey
         textModelID = UserSettings.defaultTextModel
         imageModelID = UserSettings.defaultImageModel
-        save()
-        PromptTemplates.resetToDefaults()
-        let t = PromptTemplates.load()
-        topicTemplate = t.topic; copyTemplate = t.copywriting; promptTemplate = t.imagePrompt
     }
 
     func validateConnection() async {
@@ -66,5 +63,59 @@ final class SettingsViewModel: ObservableObject {
     func saveTemplates() {
         let t = PromptTemplates(topic: topicTemplate, copywriting: copyTemplate, imagePrompt: promptTemplate)
         t.save()
+    }
+
+    /// 获取指定模板的渲染预览
+    func preview(for template: PromptTemplate) -> String {
+        template.render()
+    }
+
+    /// 恢复全套默认
+    func resetAllTemplates() {
+        PromptTemplates.resetToDefaults()
+        let t = PromptTemplates.load()
+        topicTemplate = t.topic
+        copyTemplate = t.copywriting
+        promptTemplate = t.imagePrompt
+    }
+
+    /// 恢复单套模板正文
+    func resetBody(for id: String) {
+        switch id {
+        case "topic": topicTemplate = topicTemplate.resetBody()
+        case "copywriting": copyTemplate = copyTemplate.resetBody()
+        case "imagePrompt": promptTemplate = promptTemplate.resetBody()
+        default: break
+        }
+    }
+
+    /// 恢复单套模板变量
+    func resetVariables(for id: String) {
+        switch id {
+        case "topic": topicTemplate = topicTemplate.resetVariables()
+        case "copywriting": copyTemplate = copyTemplate.resetVariables()
+        case "imagePrompt": promptTemplate = promptTemplate.resetVariables()
+        default: break
+        }
+    }
+
+    /// 获取模板（按 id）
+    func template(for id: String) -> PromptTemplate? {
+        switch id {
+        case "topic": return topicTemplate
+        case "copywriting": return copyTemplate
+        case "imagePrompt": return promptTemplate
+        default: return nil
+        }
+    }
+
+    /// 更新模板
+    func updateTemplate(_ t: PromptTemplate) {
+        switch t.id {
+        case "topic": topicTemplate = t
+        case "copywriting": copyTemplate = t
+        case "imagePrompt": promptTemplate = t
+        default: break
+        }
     }
 }
