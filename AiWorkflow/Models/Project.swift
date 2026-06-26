@@ -130,13 +130,16 @@ struct PromptCard: Codable, Identifiable, Equatable, Sendable {
 // MARK: - 图片状态
 
 enum ImageStatus: String, Codable, Sendable {
-    case idle          // 未生成
-    case generating    // 生成中
-    case success       // 成功
-    case failed        // 请求失败
-    case parseFailed   // 返回成功但解码失败
-    case saveFailed    // 解码成功但本地保存失败
-    case cancelled     // 请求被取消
+    case idle              // 未生成
+    case generating        // 生成中
+    case success           // 成功
+    case failed            // 请求失败
+    case parseFailed       // 返回成功但解码失败
+    case binaryImageReceived // 已收到二进制图片（待保存）
+    case taskAccepted      // 接口返回任务 ID（异步）
+    case polling           // 正在轮询任务状态
+    case saveFailed        // 解码成功但本地保存失败
+    case cancelled         // 请求被取消
 }
 
 // MARK: - 图片卡片

@@ -126,61 +126,46 @@ struct InternalImageData: Decodable, Sendable {
 ///   - URL 字段: url / imageUrl / image_url / imageURL / link / download_url / src / source
 ///   - base64 字段: b64_json / base64 / image_base64 / imageData / data / content
 ///   - 嵌套对象: data.url / data.imageUrl / result.link 等
+///   - 异步任务: task_id / taskId / id + status (queued/processing/pending)
 ///   - 递归兜底: 遍历整个 JSON 树查找第一个像 URL 或 base64 的字符串
 enum FlexibleImageResponseParser {
-    static func parse(from data: Data) -> (url: String?, base64: String?, revisedPrompt: String?) {
+    /// 返回值扩展了 taskID，用于异步任务型接口
+    static func parse(from data: Data) -> (url: String?, base64: String?, revisedPrompt: String?, taskID: String?) {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            // 可能不是 JSON，尝试作为纯文本判断
             if let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-                print("📦 [FlexibleParser] 响应非 JSON，作为纯文本处理")
-                // 如果看起来像 URL
-                if text.hasPrefix("http://") || text.hasPrefix("https://") {
-                    print("📦 [FlexibleParser] 纯文本看起来是 URL")
-                    return (text, nil, nil)
-                }
-                // 如果看起来像 base64（长字符串）
-                if text.count > 100 {
-                    print("📦 [FlexibleParser] 纯文本作为 base64 尝试解码")
-                    return (nil, text, nil)
-                }
+                print("📦 [FlexibleParser] 响应非 JSON")
+                if text.hasPrefix("http://") || text.hasPrefix("https://") { return (text, nil, nil, nil) }
+                if text.count > 100 { return (nil, text, nil, nil) }
             }
-            return (nil, nil, nil)
+            return (nil, nil, nil, nil)
         }
 
-        print("📦 [FlexibleParser] 顶层 JSON keys: \(json.keys.joined(separator: ", "))")
+        print("📦 [FlexibleParser] JSON keys: \(json.keys.joined(separator: ", "))")
+        let taskID = Self.extractTaskID(json)
+        if taskID != nil { print("📦 [FlexibleParser] ⏳ taskID=\(taskID!)") }
 
-        // 尝试所有已知数组路径
-        let arrayCandidates = ["data", "images", "results", "output", "items", "image", "imgs"]
-        for arrKey in arrayCandidates {
+        for arrKey in ["data","images","results","output","items","image","imgs"] {
             if let arr = json[arrKey] as? [[String: Any]], let first = arr.first {
-                print("📦 [FlexibleParser] \(arrKey)[0] keys: \(first.keys.joined(separator: ", "))")
-                if let result = extractFromDict(first) { return result }
+                if let r = extractFromDict(first) { return (r.url, r.base64, r.revisedPrompt, taskID) }
             }
         }
-
-        // 尝试所有已知对象路径
-        let objCandidates = ["data", "result", "image", "output", "response"]
-        for objKey in objCandidates {
-            if let obj = json[objKey] as? [String: Any] {
-                print("📦 [FlexibleParser] \(objKey)(对象) keys: \(obj.keys.joined(separator: ", "))")
-                if let result = extractFromDict(obj) { return result }
-            }
+        for objKey in ["data","result","image","output","response"] {
+            if let obj = json[objKey] as? [String: Any], let r = extractFromDict(obj) { return (r.url, r.base64, r.revisedPrompt, taskID) }
         }
+        if let r = extractFromDict(json) { return (r.url, r.base64, r.revisedPrompt, taskID) }
+        if let r = recursiveSearch(json, depth: 0, maxDepth: 5) { return (r.url, r.base64, r.revisedPrompt, taskID) }
 
-        // 尝试顶层直接字段
-        if let result = extractFromDict(json) { return result }
+        if let d = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted,.sortedKeys]),
+           let s = String(data: d, encoding: .utf8) { print(s) }
+        return (nil, nil, nil, taskID)
+    }
 
-        // ⭐ 递归兜底：遍历整个 JSON 树
-        print("📦 [FlexibleParser] 🔍 已知路径均未匹配，启动递归搜索...")
-        if let result = recursiveSearch(json, depth: 0, maxDepth: 5) { return result }
-
-        // 彻底失败
-        print("📦 [FlexibleParser] ❌ 所有解析方式均失败，打印完整响应体:")
-        if let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
-           let str = String(data: pretty, encoding: .utf8) {
-            print(str)
+    private static func extractTaskID(_ json: [String: Any]) -> String? {
+        for key in ["task_id","taskId","id","request_id","requestId"] {
+            if let val = json[key] as? String, !val.isEmpty { return val }
+            if let val = json[key] as? Int { return "\(val)" }
         }
-        return (nil, nil, nil)
+        return nil
     }
 
     /// 从字典中提取图片字段（检查多种 key 名）
@@ -202,13 +187,13 @@ enum FlexibleImageResponseParser {
     }
 
     /// 递归搜索整个 JSON 树，查找像 URL 或 base64 的字符串
-    private static func recursiveSearch(_ value: Any, depth: Int, maxDepth: Int) -> (url: String?, base64: String?, revisedPrompt: String?)? {
+    private static func recursiveSearch(_ value: Any, depth: Int, maxDepth: Int) -> (url: String?, base64: String?, revisedPrompt: String?, taskID: String?)? {
         if depth > maxDepth { return nil }
         let indent = String(repeating: "  ", count: depth)
 
         if let dict = value as? [String: Any] {
             // 先检查这个 dict 本身
-            if let result = extractFromDict(dict) { return result }
+            if let result = extractFromDict(dict) { return (result.url, result.base64, result.revisedPrompt, nil) }
             // 再递归子字段
             for (key, val) in dict {
                 if key == "revised_prompt" { continue }
@@ -233,9 +218,9 @@ enum FlexibleImageResponseParser {
         if let str = value as? String, str.count > 20 {
             if str.hasPrefix("http://") || str.hasPrefix("https://") || str.hasPrefix("data:image") {
                 print("\(indent)📦 [递归] ✅ 找到内联 URL: \(str.prefix(80))")
-                return (str, nil, nil)
+                return (str, nil, nil, nil)
             }
-            // 长字符串 + 无空格 + 可能 base64
+            if !str.contains(" ") \&\& str.count > 100 \&\& str.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
             if !str.contains(" ") && str.count > 100 && str.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
                 print("\(indent)📦 [递归] ✅ 找到疑似 base64: 长度=\(str.count)")
                 return (nil, str, nil)
@@ -256,35 +241,29 @@ enum FlexibleImageResponseParser {
 // MARK: - 图片结果（统一格式，兼容 URL / base64 / 二进制）
 
 /// 图片生成结果——适配层统一输出格式
-/// ViewModel 和 View 只依赖此类型，不关心底层是 URL 还是 base64。
 struct ImageGenerationResult: Sendable {
-    /// 图片二进制数据（优先从 base64 解码，URL 模式需额外下载）
+    /// 图片二进制数据
     public private(set) var imageData: Data?
-
-    /// 图片 URL（如果 API 返回 URL 形式）
+    /// 图片 URL
     public private(set) var imageURL: String?
-
     /// API 优化后的提示词
     public private(set) var revisedPrompt: String?
+    /// 原始 HTTP 响应的文本表示（用于调试）
+    public private(set) var rawResponseText: String?
+    /// HTTP 状态码
+    public private(set) var statusCode: Int?
+    /// Content-Type
+    public private(set) var contentType: String?
+    /// 异步任务 ID（如果接口返回任务模式）
+    public private(set) var taskID: String?
 
-    /// 从 API 原始数据构造统一结果
-    init(from item: InternalImageData, downloadURLData: Data? = nil) {
-        // 优先用下载好的二进制
-        if let binary = downloadURLData {
-            self.imageData = binary
-        }
-        // 其次 base64 解码
-        if self.imageData == nil, let b64 = item.b64Json {
-            self.imageData = Data(base64Encoded: b64)
-        }
-        self.imageURL = item.url
-        self.revisedPrompt = item.revisedPrompt
-    }
-
-    /// 直接构造（Mock 或手动）
-    init(imageData: Data? = nil, imageURL: String? = nil, revisedPrompt: String? = nil) {
+    init(imageData: Data? = nil, imageURL: String? = nil, revisedPrompt: String? = nil, rawResponseText: String? = nil, statusCode: Int? = nil, contentType: String? = nil, taskID: String? = nil) {
         self.imageData = imageData
         self.imageURL = imageURL
         self.revisedPrompt = revisedPrompt
+        self.rawResponseText = rawResponseText
+        self.statusCode = statusCode
+        self.contentType = contentType
+        self.taskID = taskID
     }
 }
