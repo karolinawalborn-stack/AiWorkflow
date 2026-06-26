@@ -43,18 +43,71 @@ final class SettingsViewModel: ObservableObject {
         imageModelID = UserSettings.defaultImageModel
     }
 
+    /// 测试连接：请求 models 列表（轻量检测）
     func validateConnection() async {
         guard !apiBaseURL.isEmpty else { validationResult = "请填写URL"; return }
         guard !apiKey.isEmpty else { validationResult = "请填写Key"; return }
         isValidating = true; validationResult = nil
-        guard let url = URL(string: "\(apiBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/v1/models") else {
-            validationResult = "无效URL"; isValidating = false; return
-        }
+        let urlStr = "\(apiBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/v1/models"
+        guard let url = URL(string: urlStr) else { validationResult = "无效URL"; isValidating = false; return }
         var req = URLRequest(url: url); req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization"); req.timeoutInterval = 15
+        let start = Date()
         do {
             let (_, resp) = try await URLSession.shared.data(for: req)
-            validationResult = (resp as? HTTPURLResponse)?.statusCode == 200 ? "连接成功" : "连接失败"
-        } catch { validationResult = "连接失败：\(error.localizedDescription)" }
+            let elapsed = Date().timeIntervalSince(start)
+            if let http = resp as? HTTPURLResponse {
+                validationResult = http.statusCode == 200
+                    ? "✅ Models 接口 OK (\(String(format: "%.1f", elapsed))s)"
+                    : "❌ HTTP \(http.statusCode) (\(String(format: "%.1f", elapsed))s)"
+            } else {
+                validationResult = "❌ 非 HTTP 响应"
+            }
+        } catch {
+            let ns = error as NSError
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorTimedOut {
+                validationResult = "⏰ 超时（15s）"
+            } else if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorSecureConnectionFailed {
+                validationResult = "🔒 安全连接失败（ATS/证书问题）"
+            } else if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorNotConnectedToInternet {
+                validationResult = "📡 网络未连接"
+            } else {
+                validationResult = "❌ \(error.localizedDescription)"
+            }
+        }
+        isValidating = false
+    }
+
+    /// 短模板测试：用极短 prompt 验证文本接口是否正常工作
+    func shortTest() async {
+        guard !apiBaseURL.isEmpty else { validationResult = "请填写URL"; return }
+        guard !apiKey.isEmpty else { validationResult = "请填写Key"; return }
+        isValidating = true; validationResult = "🔄 发送短文本测试请求..."
+        let start = Date()
+        print("🧪 [ShortTest] 开始短文本测试")
+
+        // 使用适配器发送一个极简的 chat completion
+        let config = AIProviderConfig(baseURL: apiBaseURL, apiKey: apiKey, textModel: textModelID, imageModel: imageModelID, timeout: 30)
+        let client = HTTPClient()
+        let adapter = InternalToolStationTextAdapter(httpClient: client, config: config)
+
+        do {
+            _ = try await adapter.chatCompletion(
+                systemPrompt: "你是一个助手。请用一句话回答。",
+                userMessage: "你好，请回复：ok",
+                temperature: 0.3
+            )
+            let elapsed = Date().timeIntervalSince(start)
+            validationResult = "✅ 短文本测试通过 (\(String(format: "%.1f", elapsed))s)"
+            print("✅ [ShortTest] 成功 \(String(format: "%.1f", elapsed))s")
+        } catch let ne as NetworkError {
+            let elapsed = Date().timeIntervalSince(start)
+            validationResult = "❌ [\(ne.category)] \(ne.errorDescription ?? "N/A") (\(String(format: "%.1f", elapsed))s)"
+            print("❌ [ShortTest] 失败 \(String(format: "%.1f", elapsed))s: \(ne.category) - \(ne.errorDescription ?? "")")
+        } catch {
+            let elapsed = Date().timeIntervalSince(start)
+            validationResult = "❌ 未知错误 (\(String(format: "%.1f", elapsed))s): \(error.localizedDescription)"
+            print("❌ [ShortTest] 未知 \(String(format: "%.1f", elapsed))s: \(error)")
+        }
         isValidating = false
     }
 

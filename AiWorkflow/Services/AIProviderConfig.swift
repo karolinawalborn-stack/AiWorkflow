@@ -28,7 +28,7 @@ struct AIProviderConfig: Sendable {
         textModelName: String,
         imageModelName: String,
         customHeaders: [String: String] = [:],
-        timeout: TimeInterval = 60
+        timeout: TimeInterval = 120
     ) {
         self.baseURL = baseURL
         self.token = token

@@ -48,10 +48,16 @@ final class TopicViewModel: ObservableObject {
                 }
                 isLoading = false
                 log("✅ \(topics.count) 个选题")
-            } catch {
-                errorMessage = "生成失败：\(error.localizedDescription)"
+            } catch let ne as NetworkError {
+                let msg = "[\(ne.category)] \(ne.errorDescription ?? "N/A")"
+                errorMessage = "生成失败：\(msg)"
                 isLoading = false
-                log("❌ \(error.localizedDescription)")
+                log("❌ \(msg)")
+            } catch {
+                let msg = "未知错误：\(error.localizedDescription)"
+                errorMessage = msg
+                isLoading = false
+                log("❌ \(msg)")
             }
         }
     }

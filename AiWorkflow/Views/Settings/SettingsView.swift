@@ -29,6 +29,9 @@ struct SettingsView: View {
                     Button { Task { await vm.validateConnection() } } label: {
                         HStack { Image(systemName: "antenna.radiowaves.left.and.right"); Text(vm.isValidating ? "验证中..." : "验证连接") }
                     }.disabled(vm.isValidating)
+                    Button { Task { await vm.shortTest() } } label: {
+                        HStack { Image(systemName: "testtube.2"); Text(vm.isValidating ? "测试中..." : "短文本测试") }
+                    }.disabled(vm.isValidating).tint(.orange)
                 } header: { Text("API 配置").foregroundColor(.secondary) }
 
                 // ── 模型配置 ──
