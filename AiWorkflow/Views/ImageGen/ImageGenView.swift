@@ -22,6 +22,7 @@ struct ImageGenView: View {
                             HStack { Image(systemName: "photo.on.rectangle.angled"); Text(vm.isLoading ? "生成中..." : "全部生成") }.frame(maxWidth: .infinity)
                         }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
                         if vm.allSuccess { Button("完成") { vm.completeProject() }.buttonStyle(.bordered) }
+                    if vm.successCount > 0 { Button("下载到相册") { vm.downloadAllToAlbum() }.buttonStyle(.bordered).tint(.green) }
                     }
 
                     // 调试按钮
@@ -97,11 +98,25 @@ struct ImageGenView: View {
                 }
             }
 
-            if let data = vm.selectedReferenceImageData, let ui = UIImage(data: data) {
+            if let refs = vm.project?.referenceImages, !refs.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(refs) { ref in
+                            if let d = try? Data(contentsOf: URL(fileURLWithPath: ref.localFilePath)), let ui = UIImage(data: d) {
+                                Image(uiImage: ui).resizable().aspectRatio(contentMode: .fit).frame(width: 50, height: 66).cornerRadius(4)
+                                    .overlay(alignment: .topTrailing) {
+                                        Button { vm.clearReferenceImage() } label: { Image(systemName: "xmark.circle.fill").font(.caption).foregroundColor(.red).background(Color.white.clipShape(Circle())) }.buttonStyle(.plain).offset(x: 4, y: -4)
+                                    }
+                            }
+                        }
+                    }
+                }.frame(height: 70)
+            } else if let data = vm.selectedReferenceImageData, let ui = UIImage(data: data) {
                 HStack(spacing: 12) {
                     Image(uiImage: ui).resizable().aspectRatio(contentMode: .fit).frame(width: 60, height: 80).cornerRadius(6)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("参考图已选择").font(.caption).foregroundColor(.secondary)
+                        let refCount = vm.project?.referenceImages.count ?? (vm.selectedReferenceImageData != nil ? 1 : 0)
+                        Text("参考图已选择 (\(refCount)张)").font(.caption).foregroundColor(.secondary)
                         Text("模式: \(projectRefModeDisplay)").font(.caption2).foregroundColor(.secondary)
                         if vm.project?.globalReferenceImageMode == .promptOnlyFallback {
                             Text("当前接口未确认支持真实图片输入，已降级为「风格参考模式」").font(.caption2).foregroundColor(.orange)

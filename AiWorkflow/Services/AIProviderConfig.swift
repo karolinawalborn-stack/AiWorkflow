@@ -21,6 +21,7 @@ struct AIProviderConfig: Sendable {
     var referenceImageFieldName: String
     var imagePromptFieldName: String
     var imageTaskQueryEndpointPath: String
+    var fileDownloadEndpointPath: String
 
     // ── 通用 ──
     var token: String
@@ -38,7 +39,8 @@ struct AIProviderConfig: Sendable {
         imageReferenceMode: "promptOnlyFallback",
         referenceImageFieldName: "image",
         imagePromptFieldName: "prompt",
-        imageTaskQueryEndpointPath: "/v1/media/query"
+        imageTaskQueryEndpointPath: "/v1/media/query",
+        fileDownloadEndpointPath: "/v1/media/files"
     )
 
     init(
@@ -52,6 +54,7 @@ struct AIProviderConfig: Sendable {
         referenceImageFieldName: String = "image",
         imagePromptFieldName: String = "prompt",
         imageTaskQueryEndpointPath: String = "/v1/media/query",
+        fileDownloadEndpointPath: String = "/v1/media/files",
         customHeaders: [String: String] = [:],
         timeout: TimeInterval = 120
     ) {
@@ -65,6 +68,7 @@ struct AIProviderConfig: Sendable {
         self.referenceImageFieldName = referenceImageFieldName
         self.imagePromptFieldName = imagePromptFieldName
         self.imageTaskQueryEndpointPath = imageTaskQueryEndpointPath
+        self.fileDownloadEndpointPath = fileDownloadEndpointPath
         self.customHeaders = customHeaders
         self.timeout = timeout
     }
@@ -97,6 +101,7 @@ struct AIProviderConfig: Sendable {
         d.set(referenceImageFieldName, forKey: "reference_image_field_name")
         d.set(imagePromptFieldName, forKey: "image_prompt_field_name")
         d.set(imageTaskQueryEndpointPath, forKey: "image_task_query_path")
+        d.set(fileDownloadEndpointPath, forKey: "file_download_path")
     }
 }
 
@@ -138,6 +143,13 @@ extension AIProviderConfig {
 
     /// 支持的尺寸列表（用于设置页选择）
     /// 任务查询候选路径（按优先级尝试）
+    /// efsIds 候选下载路径
+    static let efsDownloadPaths: [String] = [
+        "/v1/media/files",
+        "/api/files",
+        "/v1/files",
+    ]
+
     static let candidateQueryPaths: [String] = [
         "/v1/media/query",
         "/v1/media/status",

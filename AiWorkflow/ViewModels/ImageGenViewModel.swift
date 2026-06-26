@@ -143,7 +143,7 @@ final class ImageGenViewModel: ObservableObject {
             print("\(tag) ⏳ 异步任务: taskID=\(taskID)")
             guard var p = project, index < p.imageCards.count else { return }
             p.imageCards[index].status = .taskAccepted
-            p.imageCards[index].rawResponse = rawText
+            p.imageCards[index].rawSubmitResponse = rawText
             p.imageCards[index].errorMessage = "已接收任务: \(taskID)"
             p.updatedAt = Date(); store?.upsert(p); project = p
             currentGeneratingIndex = nil; return
@@ -174,7 +174,7 @@ final class ImageGenViewModel: ObservableObject {
         p.imageCards[index].imageBase64 = imageData.base64EncodedString()
         p.imageCards[index].localFilePath = fileURL.path
         p.imageCards[index].imageURL = result.imageURL
-        p.imageCards[index].rawResponse = result.rawResponseText ?? ""
+        p.imageCards[index].rawSubmitResponse = result.rawResponseText ?? ""
         p.imageCards[index].errorMessage = nil
         if p.imageCards.allSatisfy({ $0.status == .success }) { p.status = .imagesReady }
         p.updatedAt = Date(); store?.upsert(p); project = p
@@ -243,6 +243,7 @@ final class ImageGenViewModel: ObservableObject {
         }
         return paths
     }()
+    private let efsPaths: [String] = AIProviderConfig.efsDownloadPaths
     private func startPolling(taskID: String, cardIndex: Int) {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -298,10 +299,39 @@ final class ImageGenViewModel: ObservableObject {
         let fu = dd.appendingPathComponent(fn)
         do { try d.write(to: fu); print("📷[\(idx)] ✅ \(fu.path)") } catch { setCardFailed(idx, status: .saveFailed, error: "\(error.localizedDescription)"); return }
         guard var p = project, idx < p.imageCards.count else { return }
-        p.imageCards[idx].status = .success; p.imageCards[idx].imageBase64 = d.base64EncodedString(); p.imageCards[idx].localFilePath = fu.path; p.imageCards[idx].rawResponse = rs; p.imageCards[idx].errorMessage = nil
+        p.imageCards[idx].status = .success; p.imageCards[idx].imageBase64 = d.base64EncodedString(); p.imageCards[idx].localFilePath = fu.path; p.imageCards[idx].rawQueryResponse = rs; p.imageCards[idx].errorMessage = nil
         if p.imageCards.allSatisfy({ $0.status == .success }) { p.status = .imagesReady }
         p.updatedAt = Date(); store?.upsert(p); project = p
     }
+    // MARK: - 批量下载到相册
+
+    func downloadAllToAlbum() {
+        #if os(iOS)
+        let successCards = imageCards.filter { $0.status == .success && $0.localFilePath != nil }
+        guard !successCards.isEmpty else { errorMessage = "没有可下载的图片"; return }
+        PHPhotoLibrary.requestAuthorization { s in
+            guard s == .authorized || s == .limited else {
+                DispatchQueue.main.async { self.errorMessage = "无相册权限" }
+                return
+            }
+            var saved = 0; var failed = 0; var errs: [String] = []
+            for card in successCards {
+                guard let path = card.localFilePath, let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                      let ui = UIImage(data: data) else { failed += 1; errs.append("图\(card.cardIndex+1): 文件读取失败"); continue }
+                PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAsset(from: ui) } completionHandler: { ok, err in
+                    if ok { saved += 1 } else { failed += 1; errs.append("图\(card.cardIndex+1): \(err?.localizedDescription ?? "?")") }
+                    if saved + failed == successCards.count {
+                        DispatchQueue.main.async {
+                            self.exportMessage = failed == 0 ? "\(saved) 张已保存" : "\(saved) 成功, \(failed) 失败"
+                            if !errs.isEmpty { self.errorMessage = errs.joined(separator: "\n") }
+                        }
+                    }
+                }
+            }
+        }
+        #endif
+    }
+
     // MARK: - 相册 & 完成
 
     func saveToAlbum(at index: Int) {

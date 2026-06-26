@@ -143,6 +143,23 @@ enum ImageStatus: String, Codable, Sendable {
     case timeout           // 轮询超时
 }
 
+
+// MARK: - 参考图
+
+struct ReferenceImage: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    var localFilePath: String
+    var fileName: String
+    var sortOrder: Int
+
+    init(localFilePath: String, fileName: String = "", sortOrder: Int = 0) {
+        self.id = UUID()
+        self.localFilePath = localFilePath
+        self.fileName = fileName
+        self.sortOrder = sortOrder
+    }
+}
+
 // MARK: - 图片卡片
 
 struct ImageCard: Codable, Identifiable, Equatable, Sendable {
@@ -150,10 +167,16 @@ struct ImageCard: Codable, Identifiable, Equatable, Sendable {
     var cardIndex: Int
     /// 使用的提示词
     var promptText: String
+    /// 提交任务时获得的 task_id
+    var taskId: String?
+    /// 提交任务时获得的文件ID列表
+    var efsIds: [String]
     /// 状态
     var status: ImageStatus
-    /// API 原始响应（全文）
-    var rawResponse: String
+    /// API 提交原始响应
+    var rawSubmitResponse: String
+    /// 查询结果原始响应
+    var rawQueryResponse: String
     /// 图片 URL（如有）
     var imageURL: String?
     /// base64 编码的图片数据
@@ -165,12 +188,15 @@ struct ImageCard: Codable, Identifiable, Equatable, Sendable {
     /// 错误信息
     var errorMessage: String?
 
-    init(cardIndex: Int, promptText: String = "", status: ImageStatus = .idle, rawResponse: String = "", imageURL: String? = nil, imageBase64: String? = nil, localFilePath: String? = nil, referenceImageLocalPath: String? = nil, errorMessage: String? = nil) {
+    init(cardIndex: Int, promptText: String = "", taskId: String? = nil, efsIds: [String] = [], status: ImageStatus = .idle, rawSubmitResponse: String = "", rawQueryResponse: String = "", imageURL: String? = nil, imageBase64: String? = nil, localFilePath: String? = nil, referenceImageLocalPath: String? = nil, errorMessage: String? = nil) {
         self.id = UUID()
         self.cardIndex = cardIndex
         self.promptText = promptText
+        self.taskId = taskId
+        self.efsIds = efsIds
         self.status = status
-        self.rawResponse = rawResponse
+        self.rawSubmitResponse = rawSubmitResponse
+        self.rawQueryResponse = rawQueryResponse
         self.imageURL = imageURL
         self.imageBase64 = imageBase64
         self.localFilePath = localFilePath
@@ -247,6 +273,7 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
     var globalReferenceImageLocalPath: String?
     var globalReferenceImageMode: ImageReferenceMode
     var useGlobalReferenceImage: Bool
+    var referenceImages: [ReferenceImage]
     /// 图片尺寸覆盖（为空则按 ratio 映射）
     var imageSizeOverride: String?
 
@@ -293,5 +320,6 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
         self.globalReferenceImageMode = .promptOnlyFallback
         self.useGlobalReferenceImage = false
         self.imageSizeOverride = nil
+        self.referenceImages = []
     }
 }
