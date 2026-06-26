@@ -181,13 +181,18 @@ final class PromptViewModel: ObservableObject {
 
     func copyPrompt(at index: Int) {
         guard index < prompts.count else { return }
-        #if os(iOS); UIPasteboard.general.string = prompts[index].prompt; #endif
+        #if os(iOS)
+        UIPasteboard.general.string = prompts[index].prompt
+        #endif
         lastCopied = prompts[index].prompt
     }
 
     func copyAllPrompts() {
         let all = prompts.sorted { $0.cardIndex < $1.cardIndex }.map { "【图\($0.cardIndex+1)】\n\($0.prompt)" }.joined(separator: "\n\n---\n\n")
-        #if os(iOS); UIPasteboard.general.string = all; #endif; lastCopied = all
+        #if os(iOS)
+        UIPasteboard.general.string = all
+        #endif
+        lastCopied = all
     }
 
     func saveAsTemplate() {
