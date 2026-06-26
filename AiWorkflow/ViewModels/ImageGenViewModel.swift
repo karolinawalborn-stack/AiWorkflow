@@ -273,22 +273,28 @@ final class ImageGenViewModel: ObservableObject {
                             if let b64 = p2.base64, let d = Data(base64Encoded: b64) { await self.saveFromPolling(cardIndex, d, rs); found = true; break }
                             if let u2 = p2.url, let url = URL(string: u2), let (d,_) = try? await URLSession.shared.data(for: .init(url: url,timeoutInterval:15)) { await self.saveFromPolling(cardIndex, d, rs); found = true; break }
                             if rs.contains("processing")||rs.contains("pending")||rs.contains("queued") { break }
-                            if rs.contains("failed")||rs.contains("error") { await self.setCardFailedAsync(cardIndex,.failed,"任务失败: \(rs.prefix(200))"); found = true; break }
+                            if rs.contains("failed")||rs.contains("error") { await self.markFailed(cardIndex, "任务失败: \(rs.prefix(200))"); found = true; break }
                         } catch { print("\(tag) ⚠️ \(method) \(path): \(error.localizedDescription)") }
                     }; if found { break }
                 }; if found { break }
             }
             if var p = self.project, cardIndex < p.imageCards.count, p.imageCards[cardIndex].status == .polling {
-                p.imageCards[cardIndex].status = .timeout; p.imageCards[cardIndex].errorMessage = "查询超时(60s) taskID=\(taskID)"
+                self.markTimeout(cardIndex, taskID: taskID); p.imageCards[cardIndex].errorMessage = "查询超时(60s) taskID=\(taskID)"
                 p.updatedAt = Date(); self.store?.upsert(p); self.project = p
             }
         }
     }
+    private func markFailed(_ idx: Int, _ err: String) { setCardFailed(idx, status: .failed, error: err) }
+    private func markTimeout(_ idx: Int, taskID: String) {
+        guard var p = project, idx < p.imageCards.count else { return }
+        p.imageCards[idx].status = .timeout; p.imageCards[idx].errorMessage = "查询超时(60s) taskID=\(taskID)"
+        p.updatedAt = Date(); store?.upsert(p); project = p
+    }
     @MainActor private func saveFromPolling(_ idx: Int, _ d: Data, _ rs: String) async {
         #if os(iOS)
-        guard UIImage(data: d) != nil else { setCardFailed(idx, .parseFailed, "无法解码", rawResponse: rs); return }; #endif
+        guard UIImage(data: d) != nil else { setCardFailed(idx, status: .parseFailed, error: "无法解码", rawResponse: rs); return }; #endif
         let fn = "img_\(project?.id.uuidString.prefix(8) ?? "x")_\(idx).jpg"
-        guard let dd = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { setCardFailed(idx, .saveFailed, "无目录"); return }
+        guard let dd = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { setCardFailed(idx, status: .saveFailed, error: "无目录"); return }
         let fu = dd.appendingPathComponent(fn)
         do { try d.write(to: fu); print("📷[\(idx)] ✅ \(fu.path)") } catch { setCardFailed(idx, .saveFailed, "\(error.localizedDescription)"); return }
         guard var p = project, idx < p.imageCards.count else { return }
