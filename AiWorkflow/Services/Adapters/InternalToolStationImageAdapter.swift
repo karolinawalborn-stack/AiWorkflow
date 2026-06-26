@@ -33,12 +33,12 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
            prompt.prefix(200)=\(prompt.prefix(200))
            size=\(size) n=\(n)
            model=\(config.imageModelName)
-           baseURL=\(config.url(for: "/v1/images/generations").absoluteString)
+           baseURL=\(config.url(for: "/v1/images/generations"))
         """)
 
         guard !config.imageModelName.isEmpty else {
             print("🌐 ❌ imageModelName 为空!")
-            throw NetworkError.invalidResponse("imageModelName 为空")
+            throw NetworkError.missingBaseURL
         }
 
         // ── 1. 先请求 base64 格式（最通用） ──
@@ -92,7 +92,7 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
 
         print("""
         🌐 [ImageAdapter] requestImages(\(responseFormat)):
-           method=\(request.method.rawValue) url=\(request.url.absoluteString)
+           method=\(request.method.rawValue) url=\(request.url)
            model=\(config.imageModelName)
            body 大小=\(bodyData.count) bytes
            headers 包含 Authorization=\(request.headers["Authorization"] != nil)
