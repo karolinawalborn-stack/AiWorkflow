@@ -16,8 +16,7 @@ final class StartCreationViewModel: ObservableObject {
         guard isValid else { return nil }
 
         let topic = topicInput.trimmingCharacters(in: .whitespaces)
-        var p = Project(name: topic)
-        p = p
+        let p = Project(name: topic)
         store.upsert(p)
         print("✅ [StartCreation] 创建项目「\(p.name)」id=\(p.id)")
         return p.id
