@@ -20,6 +20,7 @@ final class ImageGenViewModel: ObservableObject {
     private var store: ProjectStore?
     private var imageService: AIImageServiceProtocol?
     private var currentTask: Task<Void, Never>?
+    private var pollingTask: Task<Void, Never>?
 
     var imageCards: [ImageCard] { project?.sortedImages ?? [] }
     var successCount: Int { imageCards.filter { $0.status == .success }.count }
@@ -232,6 +233,70 @@ final class ImageGenViewModel: ObservableObject {
         project = p; store?.upsert(p)
         Task { await generateImage(at: index); if let np2 = project { store?.upsert(np2) } }
     }
+
+    // MARK: - 任务轮询
+    private let queryPaths: [String] = {
+        let configured = AIProviderConfig.default.imageTaskQueryEndpointPath
+        var paths = [configured]
+        for p in AIProviderConfig.candidateQueryPaths {
+            if !paths.contains(p) { paths.append(p) }
+        }
+        return paths
+    }()
+    private func startPolling(taskID: String, cardIndex: Int) {
+        pollingTask?.cancel()
+        pollingTask = Task { [weak self] in
+            guard let self = self else { return }
+            let tag = "📷[\(cardIndex)]"; let maxAttempts = 30
+            let imgBaseURL = AIProviderConfig.default.imageBaseURL
+            print("\(tag) ⏳ 开始轮询 taskID=\(taskID)")
+            if var p = self.project, cardIndex < p.imageCards.count {
+                p.imageCards[cardIndex].status = .polling; p.imageCards[cardIndex].errorMessage = "查询任务: \(taskID)"
+                p.updatedAt = Date(); self.store?.upsert(p); self.project = p
+            }
+            for attempt in 1...maxAttempts {
+                if Task.isCancelled { break }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                print("\(tag) 🔄 \(attempt)/\(maxAttempts) taskID=\(taskID)")
+                var found = false
+                for path in self.queryPaths {
+                    if Task.isCancelled { break }
+                    let u = "\(imgBaseURL.trimmingCharacters(in: .init(charactersIn: "/")))\(path.hasPrefix("/") ? path : "/\(path)")"
+                    for method in ["GET", "POST"] {
+                        if Task.isCancelled { break }
+                        let b = method == "POST" ? try? JSONSerialization.data(withJSONObject: ["task_id": taskID], options: []) : nil
+                        let q = method == "GET" ? "\(u)?task_id=\(taskID)" : u
+                        let req = APIRequest(method: method == "GET" ? .get : .post, url: q, headers: ["Content-Type": "application/json"], body: b, timeout: 10)
+                        do {
+                            let r = try await HTTPClient().sendRaw(req); let rs = String(data: r.data, encoding: .utf8) ?? ""
+                            let p2 = FlexibleImageResponseParser.parse(from: r.data)
+                            if let b64 = p2.base64, let d = Data(base64Encoded: b64) { await self.saveFromPolling(cardIndex, d, rs); found = true; break }
+                            if let u2 = p2.url, let url = URL(string: u2), let (d,_) = try? await URLSession.shared.data(for: .init(url: url,timeoutInterval:15)) { await self.saveFromPolling(cardIndex, d, rs); found = true; break }
+                            if rs.contains("processing")||rs.contains("pending")||rs.contains("queued") { break }
+                            if rs.contains("failed")||rs.contains("error") { await self.setCardFailedAsync(cardIndex,.failed,"任务失败: \(rs.prefix(200))"); found = true; break }
+                        } catch { print("\(tag) ⚠️ \(method) \(path): \(error.localizedDescription)") }
+                    }; if found { break }
+                }; if found { break }
+            }
+            if var p = self.project, cardIndex < p.imageCards.count, p.imageCards[cardIndex].status == .polling {
+                p.imageCards[cardIndex].status = .timeout; p.imageCards[cardIndex].errorMessage = "查询超时(60s) taskID=\(taskID)"
+                p.updatedAt = Date(); self.store?.upsert(p); self.project = p
+            }
+        }
+    }
+    @MainActor private func saveFromPolling(_ idx: Int, _ d: Data, _ rs: String) async {
+        #if os(iOS)
+        guard UIImage(data: d) != nil else { setCardFailed(idx, .parseFailed, "无法解码", rawResponse: rs); return }; #endif
+        let fn = "img_\(project?.id.uuidString.prefix(8) ?? "x")_\(idx).jpg"
+        guard let dd = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { setCardFailed(idx, .saveFailed, "无目录"); return }
+        let fu = dd.appendingPathComponent(fn)
+        do { try d.write(to: fu); print("📷[\(idx)] ✅ \(fu.path)") } catch { setCardFailed(idx, .saveFailed, "\(error.localizedDescription)"); return }
+        guard var p = project, idx < p.imageCards.count else { return }
+        p.imageCards[idx].status = .success; p.imageCards[idx].imageBase64 = d.base64EncodedString(); p.imageCards[idx].localFilePath = fu.path; p.imageCards[idx].rawResponse = rs; p.imageCards[idx].errorMessage = nil
+        if p.imageCards.allSatisfy({ $0.status == .success }) { p.status = .imagesReady }
+        p.updatedAt = Date(); store?.upsert(p); project = p
+    }
+    @MainActor private func setCardFailedAsync(_ idx: Int, _ st: ImageStatus, _ err: String) { setCardFailed(idx, st, err) }
 
     // MARK: - 相册 & 完成
 

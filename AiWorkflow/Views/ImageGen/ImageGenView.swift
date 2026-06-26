@@ -248,6 +248,7 @@ struct ImageCardDebugView: View {
         case .binaryImageReceived: return .blue
         case .taskAccepted: return .purple
         case .polling:     return .orange
+        case .timeout:     return .red
         case .saveFailed:  return .orange
         case .cancelled:   return .gray
         }

@@ -11,6 +11,7 @@ struct UserSettings: Codable, Sendable {
     var imageReferenceMode: String
     var referenceImageFieldName: String
     var imagePromptFieldName: String
+    var imageTaskQueryEndpointPath: String
     var imageSize: String
     var defaultTemplateContent: String
 
@@ -23,6 +24,7 @@ struct UserSettings: Codable, Sendable {
     static let defaultImageReferenceMode = "promptOnlyFallback"
     static let defaultReferenceImageFieldName = "image"
     static let defaultImagePromptFieldName = "prompt"
+    static let defaultImageTaskQueryPath = "/v1/media/query"
     static let defaultImageSize = "1024x1536"
 
     init(
@@ -35,6 +37,7 @@ struct UserSettings: Codable, Sendable {
         imageReferenceMode: String = Self.defaultImageReferenceMode,
         referenceImageFieldName: String = Self.defaultReferenceImageFieldName,
         imagePromptFieldName: String = Self.defaultImagePromptFieldName,
+        imageTaskQueryEndpointPath: String = Self.defaultImageTaskQueryPath,
         imageSize: String = Self.defaultImageSize,
         defaultTemplateContent: String = ""
     ) {
@@ -47,6 +50,7 @@ struct UserSettings: Codable, Sendable {
         self.imageReferenceMode = imageReferenceMode
         self.referenceImageFieldName = referenceImageFieldName
         self.imagePromptFieldName = imagePromptFieldName
+        self.imageTaskQueryEndpointPath = imageTaskQueryEndpointPath
         self.imageSize = imageSize
         self.defaultTemplateContent = defaultTemplateContent
     }
@@ -78,6 +82,7 @@ struct UserSettings: Codable, Sendable {
         d.set(imageReferenceMode, forKey: "image_reference_mode")
         d.set(referenceImageFieldName, forKey: "reference_image_field_name")
         d.set(imagePromptFieldName, forKey: "image_prompt_field_name")
+        d.set(imageTaskQueryEndpointPath, forKey: "image_task_query_path")
         d.set(imageSize, forKey: "image_size")
         d.set(defaultTemplateContent, forKey: "default_prompt_template")
     }

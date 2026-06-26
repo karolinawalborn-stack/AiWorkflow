@@ -165,6 +165,12 @@ enum FlexibleImageResponseParser {
             if let val = json[key] as? String, !val.isEmpty { return val }
             if let val = json[key] as? Int { return "\(val)" }
         }
+        if let data = json["data"] as? [String: Any] {
+            for key in ["task_id","taskId","id","request_id"] {
+                if let val = data[key] as? String, !val.isEmpty { return val }
+                if let val = data[key] as? Int { return "\(val)" }
+            }
+        }
         return nil
     }
 

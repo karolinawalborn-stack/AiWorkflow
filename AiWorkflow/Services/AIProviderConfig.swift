@@ -20,6 +20,7 @@ struct AIProviderConfig: Sendable {
     var imageReferenceMode: String
     var referenceImageFieldName: String
     var imagePromptFieldName: String
+    var imageTaskQueryEndpointPath: String
 
     // ── 通用 ──
     var token: String
@@ -36,7 +37,8 @@ struct AIProviderConfig: Sendable {
         imageModelName: "gpt-image-2",
         imageReferenceMode: "promptOnlyFallback",
         referenceImageFieldName: "image",
-        imagePromptFieldName: "prompt"
+        imagePromptFieldName: "prompt",
+        imageTaskQueryEndpointPath: "/v1/media/query"
     )
 
     init(
@@ -49,6 +51,7 @@ struct AIProviderConfig: Sendable {
         imageReferenceMode: String = "promptOnlyFallback",
         referenceImageFieldName: String = "image",
         imagePromptFieldName: String = "prompt",
+        imageTaskQueryEndpointPath: String = "/v1/media/query",
         customHeaders: [String: String] = [:],
         timeout: TimeInterval = 120
     ) {
@@ -61,6 +64,7 @@ struct AIProviderConfig: Sendable {
         self.imageReferenceMode = imageReferenceMode
         self.referenceImageFieldName = referenceImageFieldName
         self.imagePromptFieldName = imagePromptFieldName
+        self.imageTaskQueryEndpointPath = imageTaskQueryEndpointPath
         self.customHeaders = customHeaders
         self.timeout = timeout
     }
@@ -92,6 +96,7 @@ struct AIProviderConfig: Sendable {
         d.set(imageReferenceMode, forKey: "image_reference_mode")
         d.set(referenceImageFieldName, forKey: "reference_image_field_name")
         d.set(imagePromptFieldName, forKey: "image_prompt_field_name")
+        d.set(imageTaskQueryEndpointPath, forKey: "image_task_query_path")
     }
 }
 
@@ -132,6 +137,15 @@ extension AIProviderConfig {
     ]
 
     /// 支持的尺寸列表（用于设置页选择）
+    /// 任务查询候选路径（按优先级尝试）
+    static let candidateQueryPaths: [String] = [
+        "/v1/media/query",
+        "/v1/media/status",
+        "/v1/media/result",
+        "/v1/tasks",
+        "/v1/media/tasks",
+    ]
+
     static let supportedSizes: [String] = [
         "1024x1024", "1024x1536", "1536x1024",
         "768x1024", "1024x768", "768x768",
