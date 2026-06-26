@@ -296,14 +296,12 @@ final class ImageGenViewModel: ObservableObject {
         let fn = "img_\(project?.id.uuidString.prefix(8) ?? "x")_\(idx).jpg"
         guard let dd = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { setCardFailed(idx, status: .saveFailed, error: "无目录"); return }
         let fu = dd.appendingPathComponent(fn)
-        do { try d.write(to: fu); print("📷[\(idx)] ✅ \(fu.path)") } catch { setCardFailed(idx, .saveFailed, "\(error.localizedDescription)"); return }
+        do { try d.write(to: fu); print("📷[\(idx)] ✅ \(fu.path)") } catch { setCardFailed(idx, status: .saveFailed, error: "\(error.localizedDescription)"); return }
         guard var p = project, idx < p.imageCards.count else { return }
         p.imageCards[idx].status = .success; p.imageCards[idx].imageBase64 = d.base64EncodedString(); p.imageCards[idx].localFilePath = fu.path; p.imageCards[idx].rawResponse = rs; p.imageCards[idx].errorMessage = nil
         if p.imageCards.allSatisfy({ $0.status == .success }) { p.status = .imagesReady }
         p.updatedAt = Date(); store?.upsert(p); project = p
     }
-    @MainActor private func setCardFailedAsync(_ idx: Int, _ st: ImageStatus, _ err: String) { setCardFailed(idx, st, err) }
-
     // MARK: - 相册 & 完成
 
     func saveToAlbum(at index: Int) {
