@@ -86,7 +86,7 @@ final class SettingsViewModel: ObservableObject {
         print("🧪 [ShortTest] 开始短文本测试")
 
         // 使用适配器发送一个极简的 chat completion
-        let config = AIProviderConfig(baseURL: apiBaseURL, apiKey: apiKey, textModel: textModelID, imageModel: imageModelID, timeout: 30)
+        let config = AIProviderConfig(baseURL: apiBaseURL, token: apiKey, textModelName: textModelID, imageModelName: imageModelID, timeout: 30)
         let client = HTTPClient()
         let adapter = InternalToolStationTextAdapter(httpClient: client, config: config)
 
