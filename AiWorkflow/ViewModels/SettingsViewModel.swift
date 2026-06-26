@@ -36,8 +36,11 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func resetToDefaults() {
-        apiBaseURL = UserSettings.defaultBaseURL; apiKey = ""; textModelID = UserSettings.defaultTextModel
-        imageModelID = UserSettings.defaultImageModel; save()
+        apiBaseURL = UserSettings.defaultBaseURL
+        apiKey = UserSettings.defaultAPIKey     // 恢复为 AI领航局预填 Key
+        textModelID = UserSettings.defaultTextModel
+        imageModelID = UserSettings.defaultImageModel
+        save()
         PromptTemplates.resetToDefaults()
         let t = PromptTemplates.load()
         topicTemplate = t.topic; copyTemplate = t.copywriting; promptTemplate = t.imagePrompt

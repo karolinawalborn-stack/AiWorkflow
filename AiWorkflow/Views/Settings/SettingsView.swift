@@ -52,6 +52,11 @@ struct SettingsView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
+            .onDisappear {
+                // 离开设置页时自动保存 API 配置和模板
+                vm.save()
+                vm.saveTemplates()
+            }
         }
     }
 }
