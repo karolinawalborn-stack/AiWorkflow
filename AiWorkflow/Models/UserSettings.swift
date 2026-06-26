@@ -11,6 +11,7 @@ struct UserSettings: Codable, Sendable {
     var imageReferenceMode: String
     var referenceImageFieldName: String
     var imagePromptFieldName: String
+    var imageSize: String
     var defaultTemplateContent: String
 
     static let defaultBaseURL = "https://api.lk888.ai/api"
@@ -22,6 +23,7 @@ struct UserSettings: Codable, Sendable {
     static let defaultImageReferenceMode = "promptOnlyFallback"
     static let defaultReferenceImageFieldName = "image"
     static let defaultImagePromptFieldName = "prompt"
+    static let defaultImageSize = "1024x1536"
 
     init(
         baseURL: String = Self.defaultBaseURL,
@@ -33,6 +35,7 @@ struct UserSettings: Codable, Sendable {
         imageReferenceMode: String = Self.defaultImageReferenceMode,
         referenceImageFieldName: String = Self.defaultReferenceImageFieldName,
         imagePromptFieldName: String = Self.defaultImagePromptFieldName,
+        imageSize: String = Self.defaultImageSize,
         defaultTemplateContent: String = ""
     ) {
         self.apiBaseURL = baseURL
@@ -44,6 +47,7 @@ struct UserSettings: Codable, Sendable {
         self.imageReferenceMode = imageReferenceMode
         self.referenceImageFieldName = referenceImageFieldName
         self.imagePromptFieldName = imagePromptFieldName
+        self.imageSize = imageSize
         self.defaultTemplateContent = defaultTemplateContent
     }
 
@@ -74,6 +78,7 @@ struct UserSettings: Codable, Sendable {
         d.set(imageReferenceMode, forKey: "image_reference_mode")
         d.set(referenceImageFieldName, forKey: "reference_image_field_name")
         d.set(imagePromptFieldName, forKey: "image_prompt_field_name")
+        d.set(imageSize, forKey: "image_size")
         d.set(defaultTemplateContent, forKey: "default_prompt_template")
     }
 }

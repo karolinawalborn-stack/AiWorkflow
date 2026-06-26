@@ -246,6 +246,8 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
     var globalReferenceImageLocalPath: String?
     var globalReferenceImageMode: ImageReferenceMode
     var useGlobalReferenceImage: Bool
+    /// 图片尺寸覆盖（为空则按 ratio 映射）
+    var imageSizeOverride: String?
 
     var status: ProjectStatus {
         get { ProjectStatus(rawValue: statusRaw) ?? .draft }
@@ -289,5 +291,6 @@ struct Project: Codable, Identifiable, Equatable, Sendable {
         self.globalReferenceImageLocalPath = nil
         self.globalReferenceImageMode = .promptOnlyFallback
         self.useGlobalReferenceImage = false
+        self.imageSizeOverride = nil
     }
 }

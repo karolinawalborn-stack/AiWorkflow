@@ -119,4 +119,37 @@ extension AIProviderConfig {
         h["Content-Type"] = "application/json"
         return h
     }
+
+    // MARK: - 图片尺寸映射
+
+    /// 比例到尺寸的映射表
+    static let ratioSizeMap: [(ratio: String, size: String)] = [
+        ("1:1", "1024x1024"),
+        ("3:4", "1024x1536"),
+        ("4:3", "1536x1024"),
+        ("9:16", "768x1024"),
+        ("16:9", "1024x768"),
+    ]
+
+    /// 支持的尺寸列表（用于设置页选择）
+    static let supportedSizes: [String] = [
+        "1024x1024", "1024x1536", "1536x1024",
+        "768x1024", "1024x768", "768x768",
+    ]
+
+    /// 根据比例和可选覆盖值计算最终尺寸
+    static func resolveImageSize(ratio: String, override: String?) -> String {
+        if let ov = override, !ov.isEmpty { return ov }
+        // 精确匹配
+        if let match = ratioSizeMap.first(where: { $0.ratio == ratio }) {
+            return match.size
+        }
+        // 近似匹配
+        let trimmed = ratio.trimmingCharacters(in: .whitespaces)
+        for (r, s) in ratioSizeMap {
+            if r == trimmed { return s }
+        }
+        return "1024x1536" // 默认 fallback
+    }
+}
 }

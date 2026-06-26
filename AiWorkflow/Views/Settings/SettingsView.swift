@@ -68,6 +68,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) { Text("参考图模式").font(.caption).foregroundColor(.secondary); Picker("", selection: $vm.imageReferenceMode) { ForEach(ImageReferenceMode.allCases, id: \.rawValue) { mode in Text(mode.displayName).tag(mode.rawValue) } } }
                     VStack(alignment: .leading, spacing: 4) { Text("参考图字段名").font(.caption).foregroundColor(.secondary); TextField("image", text: $vm.referenceImageFieldName).autocapitalization(.none).disableAutocorrection(true) }
                     VStack(alignment: .leading, spacing: 4) { Text("Prompt 字段名").font(.caption).foregroundColor(.secondary); TextField("prompt", text: $vm.imagePromptFieldName).autocapitalization(.none).disableAutocorrection(true) }
+                    VStack(alignment: .leading, spacing: 4) { Text("图片尺寸").font(.caption).foregroundColor(.secondary); Picker("", selection: $vm.imageSize) { ForEach(AIProviderConfig.supportedSizes, id: \.self) { size in Text(size).tag(size) } } }
                 } header: { Text("图片接口配置").foregroundColor(.secondary) }
 
                 // ── 文本模型配置 ──

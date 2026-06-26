@@ -12,6 +12,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var imageReferenceMode: String
     @Published var referenceImageFieldName: String
     @Published var imagePromptFieldName: String
+    @Published var imageSize: String
     @Published var isAPIKeyVisible = false
     @Published var validationResult: String?
     @Published var isValidating = false
@@ -29,6 +30,7 @@ final class SettingsViewModel: ObservableObject {
         self.textModelID = s.textModelID; self.imageModelID = s.imageModelID
         self.imageBaseURL = s.imageBaseURL; self.imageEndpointPath = s.imageEndpointPath
         self.imageReferenceMode = s.imageReferenceMode; self.referenceImageFieldName = s.referenceImageFieldName; self.imagePromptFieldName = s.imagePromptFieldName
+        self.imageSize = s.imageSize
         let t = AITemplates.load()
         self.topicTemplate = t.topic; self.copyTemplate = t.copywriting; self.promptTemplate = t.imagePrompt
     }
@@ -40,6 +42,7 @@ final class SettingsViewModel: ObservableObject {
         s.textModelID = textModelID; s.imageModelID = imageModelID
         s.imageBaseURL = imageBaseURL; s.imageEndpointPath = imageEndpointPath
         s.imageReferenceMode = imageReferenceMode; s.referenceImageFieldName = referenceImageFieldName; s.imagePromptFieldName = imagePromptFieldName
+        s.imageSize = imageSize
         s.save()
         saveTemplates()
     }
@@ -49,6 +52,7 @@ final class SettingsViewModel: ObservableObject {
         textModelID = UserSettings.defaultTextModel; imageModelID = UserSettings.defaultImageModel
         imageBaseURL = UserSettings.defaultImageBaseURL; imageEndpointPath = UserSettings.defaultImageEndpointPath
         imageReferenceMode = UserSettings.defaultImageReferenceMode; referenceImageFieldName = UserSettings.defaultReferenceImageFieldName; imagePromptFieldName = UserSettings.defaultImagePromptFieldName
+        imageSize = UserSettings.defaultImageSize
     }
 
     // MARK: - 快速测试

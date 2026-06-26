@@ -65,7 +65,8 @@ final class ImageGenViewModel: ObservableObject {
         let promptText: String
         if index < p.promptCards.count, !p.promptCards[index].promptText.isEmpty { promptText = p.promptCards[index].promptText }
         else { promptText = "A cute white round-headed cartoon character, dark blue-black background, dual-panel comic, 3:4 ratio" }
-        let size = p.ratio == "3:4" ? "1024x1792" : "1024x1024"
+        let size = AIProviderConfig.resolveImageSize(ratio: p.ratio, override: p.imageSizeOverride)
+        print("\(tag) 尺寸: \(size) (ratio=\(p.ratio) override=\(p.imageSizeOverride ?? "nil"))")
 
         var refB64: String? = nil; let refMode: String
         if useGlobalReferenceImage, let data = selectedReferenceImageData { refB64 = data.base64EncodedString(); refMode = p.globalReferenceImageMode.rawValue }
@@ -103,6 +104,10 @@ final class ImageGenViewModel: ObservableObject {
                 case NSURLErrorTimedOut: setCardFailed(index, status: .failed, error: "请求超时")
                 default: setCardFailed(index, status: .failed, error: "网络错误: \(error.localizedDescription)")
                 }
+            } else if let ne = error as? NetworkError, case .httpError(let code, let msg, _) = ne {
+                let detail = msg ?? "无详情"
+                print("\(tag) ❌ HTTP \(code): \(detail)")
+                setCardFailed(index, status: .failed, error: "服务器错误 (HTTP \(code)): \(detail.prefix(300))", rawResponse: detail)
             } else { setCardFailed(index, status: .failed, error: error.localizedDescription) }
             currentGeneratingIndex = nil
         }
