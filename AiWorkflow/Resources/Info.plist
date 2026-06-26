@@ -24,6 +24,11 @@
     <string>保存生成的图片到相册</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>需要访问相册以保存图片</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>
