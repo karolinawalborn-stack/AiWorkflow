@@ -82,6 +82,12 @@ struct CopyEditingView: View {
                                 )
                             }
                         }
+                        .onAppear {
+                            print("🔍 [UI] 渲染 \(vm.cards.count) 张文案卡:")
+                            for c in vm.cards {
+                                print("   card[\(c.cardIndex)] topText=「\(c.topText)」 bottomText=「\(c.bottomText)」")
+                            }
+                        }
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "doc.text").font(.system(size: 40)).foregroundColor(.secondary)
@@ -133,44 +139,61 @@ struct CopyEditingView: View {
     }
 }
 
-// MARK: - 单张卡片子视图（单一数据源：直接从 card 读取，无 @State）
+// MARK: - 单张卡片子视图（@State + .id() 强制重建，避免 multiline TextField bug）
 
 struct CopyCardRow: View {
     let card: CopywritingCard
     let onUpdate: (String, String, String) -> Void
 
+    @State private var topText: String = ""
+    @State private var bottomText: String = ""
+    @State private var purposeText: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("第\(card.cardIndex + 1)张").font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
 
-            // 预览行（从 card 直接读取）
+            // 预览行（从 @State 读取——和编辑框同一份数据）
             HStack {
-                if !card.topText.isEmpty { Text("上: \(card.topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
-                if !card.bottomText.isEmpty { Text("下: \(card.bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
-                if !card.purpose.isEmpty { Text("作用: \(card.purpose)").font(.caption2).foregroundColor(.secondary) }
+                if !topText.isEmpty { Text("上: \(topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !bottomText.isEmpty { Text("下: \(bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !purposeText.isEmpty { Text("作用: \(purposeText)").font(.caption2).foregroundColor(.secondary) }
             }
 
-            // 编辑区（使用 computed Binding，每次从 card 读取最新值）
+            // 编辑区（直接绑定 @State——iOS 16+ multiline TextField 最佳实践）
             VStack(spacing: 0) {
-                TextField("上半格文案", text: Binding(
-                    get: { card.topText },
-                    set: { onUpdate($0, card.bottomText, card.purpose) }
-                ), axis: .vertical)
-                .textFieldStyle(.plain).padding().lineLimit(2...3)
+                TextField("上半格文案", text: $topText, axis: .vertical)
+                    .textFieldStyle(.plain).padding().lineLimit(2...3)
 
                 Divider().padding(.leading)
 
-                TextField("下半格文案", text: Binding(
-                    get: { card.bottomText },
-                    set: { onUpdate(card.topText, $0, card.purpose) }
-                ), axis: .vertical)
-                .textFieldStyle(.plain).padding().lineLimit(2...3)
+                TextField("下半格文案", text: $bottomText, axis: .vertical)
+                    .textFieldStyle(.plain).padding().lineLimit(2...3)
             }
             .background(Color(.systemGray6)).cornerRadius(10)
             .padding(.top, 2)
+
+            // 用户修改 → 立即写回 project
+            .onChange(of: topText) { _ in onUpdate(topText, bottomText, purposeText) }
+            .onChange(of: bottomText) { _ in onUpdate(topText, bottomText, purposeText) }
+            .onChange(of: purposeText) { _ in onUpdate(topText, bottomText, purposeText) }
         }
+        // ⭐ 关键：card.id 变化时强制重建整个 view，@State 重新初始化
+        .id("copycard_\(card.id)")
         .onAppear {
-            print("📱 [CopyCardRow] card[\(card.cardIndex)] appear: top=「\(card.topText)」 bottom=「\(card.bottomText)」")
+            syncFromCard()
         }
+        // card.id 变化时同步（.id() 重建已触发 @State 重置，此处用于日志）
+        .onChange(of: card.id) { _ in
+            syncFromCard()
+            print("📱 [CopyCardRow] card.id 变化，同步数据")
+        }
+    }
+
+    private func syncFromCard() {
+        topText = card.topText
+        bottomText = card.bottomText
+        purposeText = card.purpose
+        print("📱 [CopyCardRow] card[\(card.cardIndex)] 同步: top=「\(card.topText)」 bottom=「\(card.bottomText)」 purpose=「\(card.purpose)」")
     }
 }
