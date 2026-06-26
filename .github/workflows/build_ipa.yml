@@ -1,0 +1,54 @@
+name: Build IPA (TrollStore)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with swiftc
+        run: |
+          set -e
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          mkdir -p Build/AiWorkflow.app
+          find . -name "*.swift" > /tmp/sources.txt
+          echo "Swift files: $(wc -l < /tmp/sources.txt)"
+
+          xcrun swiftc \
+            -target arm64-apple-ios16.0 \
+            -sdk "$SDK" \
+            -module-name AiWorkflow \
+            -emit-executable \
+            -o Build/AiWorkflow.app/AiWorkflow \
+            @/tmp/sources.txt \
+            -framework UIKit -framework SwiftUI -framework Foundation -framework Combine \
+            -Xlinker -rpath -Xlinker /usr/lib/swift \
+            2>&1
+
+      - name: Copy Info.plist
+        run: |
+          if [ -f "AiWorkflow/Resources/Info.plist" ]; then
+            cp AiWorkflow/Resources/Info.plist Build/AiWorkflow.app/
+          fi
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R Build/AiWorkflow.app Payload/
+          rm -f Payload/AiWorkflow.app/embedded.mobileprovision 2>/dev/null || true
+          rm -rf Payload/AiWorkflow.app/_CodeSignature 2>/dev/null || true
+          zip -r AiWorkflow_trollstore.ipa Payload/ -x "*.DS_Store"
+          rm -rf Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AiWorkflow_trollstore_ipa
+          path: AiWorkflow_trollstore.ipa
+          if-no-files-found: error
+          retention-days: 14
