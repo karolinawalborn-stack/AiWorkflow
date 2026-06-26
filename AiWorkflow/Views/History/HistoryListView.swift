@@ -94,4 +94,3 @@ struct DetailView: View {
     }
 }
 
-extension Project: Identifiable {}
