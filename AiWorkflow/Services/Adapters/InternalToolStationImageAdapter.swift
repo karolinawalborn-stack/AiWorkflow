@@ -85,7 +85,9 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
 
         print("🌐 [ImageAdapter] 原始响应大小: \(rawData.count) bytes")
         if let rawStr = String(data: rawData, encoding: .utf8) {
-            print("🌐 [ImageAdapter] 原始响应前1000字: \(rawStr.prefix(1000))")
+            print("🌐 [ImageAdapter] ⬇️⬇️⬇️ 原始响应全文 ⬇️⬇️⬇️")
+            print(rawStr)
+            print("🌐 [ImageAdapter] ⬆️⬆️⬆️ 原始响应结束 ⬆️⬆️⬆️")
         }
 
         // ── 灵活解析返回 ──

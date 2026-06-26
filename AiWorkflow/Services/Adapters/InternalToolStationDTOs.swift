@@ -119,62 +119,130 @@ struct InternalImageData: Decodable, Sendable {
     }
 }
 
-/// 灵活图片响应解析器——兼容多种字段路径
+/// 灵活图片响应解析器——递归搜索所有可能的图片字段
+///
+/// 支持的格式（自动递归搜索）：
+///   - 数组路径: data[] / images[] / results[] / output[] / items[]
+///   - URL 字段: url / imageUrl / image_url / imageURL / link / download_url / src / source
+///   - base64 字段: b64_json / base64 / image_base64 / imageData / data / content
+///   - 嵌套对象: data.url / data.imageUrl / result.link 等
+///   - 递归兜底: 遍历整个 JSON 树查找第一个像 URL 或 base64 的字符串
 enum FlexibleImageResponseParser {
-    /// 尝试从原始 JSON Data 中提取图片 URL 或 base64
-    /// 支持的字段路径（按优先级）：
-    ///   - data[0].url / data[0].b64_json     (OpenAI)
-    ///   - data[0].imageUrl / data[0].imageURL
-    ///   - url / imageUrl / imageURL          (顶层字段)
-    ///   - data.url / data.imageUrl           (data 对象)
-    ///   - base64 / data.base64
     static func parse(from data: Data) -> (url: String?, base64: String?, revisedPrompt: String?) {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // 可能不是 JSON，尝试作为纯文本判断
+            if let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                print("📦 [FlexibleParser] 响应非 JSON，作为纯文本处理")
+                // 如果看起来像 URL
+                if text.hasPrefix("http://") || text.hasPrefix("https://") {
+                    print("📦 [FlexibleParser] 纯文本看起来是 URL")
+                    return (text, nil, nil)
+                }
+                // 如果看起来像 base64（长字符串）
+                if text.count > 100 {
+                    print("📦 [FlexibleParser] 纯文本作为 base64 尝试解码")
+                    return (nil, text, nil)
+                }
+            }
             return (nil, nil, nil)
         }
 
-        print("📦 [FlexibleParser] 原始 JSON keys: \(json.keys.joined(separator: ", "))")
+        print("📦 [FlexibleParser] 顶层 JSON keys: \(json.keys.joined(separator: ", "))")
 
-        // 优先: data 数组
-        if let dataArray = json["data"] as? [[String: Any]], let first = dataArray.first {
-            print("📦 [FlexibleParser] data[0] keys: \(first.keys.joined(separator: ", "))")
-            if let url = string(from: first, keys: ["url", "imageUrl", "imageURL"]) {
-                print("📦 [FlexibleParser] 从 data[0].\(fieldName(from: first, keys: ["url", "imageUrl", "imageURL"])) 获取到 URL")
-                return (url, nil, first["revised_prompt"] as? String)
-            }
-            if let b64 = string(from: first, keys: ["b64_json", "base64", "imageBase64"]) {
-                print("📦 [FlexibleParser] 从 data[0] 获取到 base64, 长度=\(b64.count)")
-                return (nil, b64, first["revised_prompt"] as? String)
+        // 尝试所有已知数组路径
+        let arrayCandidates = ["data", "images", "results", "output", "items", "image", "imgs"]
+        for arrKey in arrayCandidates {
+            if let arr = json[arrKey] as? [[String: Any]], let first = arr.first {
+                print("📦 [FlexibleParser] \(arrKey)[0] keys: \(first.keys.joined(separator: ", "))")
+                if let result = extractFromDict(first) { return result }
             }
         }
 
-        // 次优: data 是对象
-        if let dataObj = json["data"] as? [String: Any] {
-            print("📦 [FlexibleParser] data(对象) keys: \(dataObj.keys.joined(separator: ", "))")
-            if let url = string(from: dataObj, keys: ["url", "imageUrl", "imageURL"]) {
-                return (url, nil, dataObj["revised_prompt"] as? String)
-            }
-            if let b64 = string(from: dataObj, keys: ["b64_json", "base64", "imageBase64"]) {
-                return (nil, b64, dataObj["revised_prompt"] as? String)
+        // 尝试所有已知对象路径
+        let objCandidates = ["data", "result", "image", "output", "response"]
+        for objKey in objCandidates {
+            if let obj = json[objKey] as? [String: Any] {
+                print("📦 [FlexibleParser] \(objKey)(对象) keys: \(obj.keys.joined(separator: ", "))")
+                if let result = extractFromDict(obj) { return result }
             }
         }
 
-        // 最后: 顶层字段
-        if let url = string(from: json, keys: ["url", "imageUrl", "imageURL"]) {
-            print("📦 [FlexibleParser] 从顶层提取到 URL")
-            return (url, nil, json["revised_prompt"] as? String)
-        }
-        if let b64 = string(from: json, keys: ["b64_json", "base64", "imageBase64"]) {
-            print("📦 [FlexibleParser] 从顶层提取到 base64")
-            return (nil, b64, json["revised_prompt"] as? String)
-        }
+        // 尝试顶层直接字段
+        if let result = extractFromDict(json) { return result }
 
-        print("📦 [FlexibleParser] ❌ 无法从响应中提取图片数据")
-        if let preview = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
-           let str = String(data: preview, encoding: .utf8) {
-            print("📦 [FlexibleParser] 完整响应:\n\(str.prefix(1000))")
+        // ⭐ 递归兜底：遍历整个 JSON 树
+        print("📦 [FlexibleParser] 🔍 已知路径均未匹配，启动递归搜索...")
+        if let result = recursiveSearch(json, depth: 0, maxDepth: 5) { return result }
+
+        // 彻底失败
+        print("📦 [FlexibleParser] ❌ 所有解析方式均失败，打印完整响应体:")
+        if let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+           let str = String(data: pretty, encoding: .utf8) {
+            print(str)
         }
         return (nil, nil, nil)
+    }
+
+    /// 从字典中提取图片字段（检查多种 key 名）
+    private static func extractFromDict(_ dict: [String: Any]) -> (url: String?, base64: String?, revisedPrompt: String?)? {
+        let urlKeys = ["url", "imageUrl", "image_url", "imageURL", "link", "download_url", "src", "source", "image_url"]
+        let b64Keys = ["b64_json", "base64", "image_base64", "imageData", "image_data", "data", "content", "file_base64"]
+
+        if let url = string(from: dict, keys: urlKeys) {
+            print("📦 [FlexibleParser] ✅ 提取到 URL: \(url.prefix(80))")
+            return (url, nil, dict["revised_prompt"] as? String)
+        }
+        for key in b64Keys {
+            if let val = dict[key] as? String, !val.isEmpty {
+                print("📦 [FlexibleParser] ✅ 提取到 base64(\(key)): 长度=\(val.count)")
+                return (nil, val, dict["revised_prompt"] as? String)
+            }
+        }
+        return nil
+    }
+
+    /// 递归搜索整个 JSON 树，查找像 URL 或 base64 的字符串
+    private static func recursiveSearch(_ value: Any, depth: Int, maxDepth: Int) -> (url: String?, base64: String?, revisedPrompt: String?)? {
+        if depth > maxDepth { return nil }
+        let indent = String(repeating: "  ", count: depth)
+
+        if let dict = value as? [String: Any] {
+            // 先检查这个 dict 本身
+            if let result = extractFromDict(dict) { return result }
+            // 再递归子字段
+            for (key, val) in dict {
+                if key == "revised_prompt" { continue }
+                print("\(indent)🔍 [递归] 进入 \(key)")
+                if let result = recursiveSearch(val, depth: depth + 1, maxDepth: maxDepth) {
+                    return result
+                }
+            }
+        }
+
+        if let arr = value as? [Any] {
+            for (i, item) in arr.enumerated() {
+                if i > 2 { break } // 最多查前 3 个
+                print("\(indent)🔍 [递归] 进入 [\(i)]")
+                if let result = recursiveSearch(item, depth: depth + 1, maxDepth: maxDepth) {
+                    return result
+                }
+            }
+        }
+
+        // 字符串类型：检查是否直接就是 URL 或 base64
+        if let str = value as? String, str.count > 20 {
+            if str.hasPrefix("http://") || str.hasPrefix("https://") || str.hasPrefix("data:image") {
+                print("\(indent)📦 [递归] ✅ 找到内联 URL: \(str.prefix(80))")
+                return (str, nil, nil)
+            }
+            // 长字符串 + 无空格 + 可能 base64
+            if !str.contains(" ") && str.count > 100 && str.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+                print("\(indent)📦 [递归] ✅ 找到疑似 base64: 长度=\(str.count)")
+                return (nil, str, nil)
+            }
+        }
+
+        return nil
     }
 
     private static func string(from dict: [String: Any], keys: [String]) -> String? {
@@ -182,13 +250,6 @@ enum FlexibleImageResponseParser {
             if let val = dict[key] as? String, !val.isEmpty { return val }
         }
         return nil
-    }
-
-    private static func fieldName(from dict: [String: Any], keys: [String]) -> String {
-        for key in keys {
-            if dict[key] as? String != nil { return key }
-        }
-        return keys.first ?? "?"
     }
 }
 
