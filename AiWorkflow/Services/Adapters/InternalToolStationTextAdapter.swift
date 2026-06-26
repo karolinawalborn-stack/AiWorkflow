@@ -14,7 +14,7 @@ final class InternalToolStationTextAdapter: AITextServiceProtocol {
         let startTime = Date()
         let callId = UUID().uuidString.prefix(6)
         print("📤 [\(callId)] InternalToolStationTextAdapter.chatCompletion START")
-        print("📤 [\(callId)] model=\(config.textModel)")
+        print("📤 [\(callId)] model=\(config.textModelName)")
         print("📤 [\(callId)] timeout=\(config.timeout)s")
         print("📤 [\(callId)] baseURL=\(config.baseURL)")
         print("📤 [\(callId)] systemPrompt.length=\(systemPrompt.count)")
@@ -22,7 +22,7 @@ final class InternalToolStationTextAdapter: AITextServiceProtocol {
 
         // 构造请求
         let body = InternalToolStationTextRequest(
-            model: config.textModel,
+            model: config.textModelName,
             messages: [
                 InternalTextMessage(role: "system", content: systemPrompt),
                 InternalTextMessage(role: "user", content: userMessage),

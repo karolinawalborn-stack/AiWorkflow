@@ -57,7 +57,7 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
         responseFormat: String
     ) async throws -> [ImageGenerationResult] {
         let body = InternalToolStationImageRequest(
-            model: config.imageModelName,
+            model: config.imageModelNameName,
             prompt: prompt,
             n: n,
             size: size,
