@@ -1,22 +1,24 @@
 import SwiftUI
 
+/// 选题 ViewModel——不依赖任何已存在的 Project
+///
+/// 职责链：
+///   生成选题（在内存中）→ 用户选中 → 创建 Project → 返回 projectID
 @MainActor
 final class TopicViewModel: ObservableObject {
     @Published var topics: [TopicCandidate] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var selectedTopicID: UUID?
-    @Published var lastDebugLog: String = ""
+    @Published var selectedTopic: TopicCandidate?
+    @Published var lastLog: String = ""
 
-    var project: Project?
-    private var store: ProjectStore?
     private var textService: AITextServiceProtocol?
+    private var store: ProjectStore?
 
-    func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project) {
-        self.store = store; self.textService = textService; self.project = project
-        self.topics = project.sortedTopics
-        self.selectedTopicID = project.selectedTopicID
-        log("✅ setup: project=\(project.name), textService=\(textService is MockTextService ? "Mock" : "Real"), topics=\(topics.count)")
+    func setup(textService: AITextServiceProtocol, store: ProjectStore) {
+        self.textService = textService
+        self.store = store
+        log("✅ setup: textService=\(textService is MockTextService ? "Mock" : "Real")")
     }
 
     // MARK: - 生成选题
@@ -27,35 +29,29 @@ final class TopicViewModel: ObservableObject {
             log("❌ textService 为 nil")
             return
         }
-        isLoading = true; errorMessage = nil
-        log("🚀 开始生成选题...")
+        isLoading = true
+        errorMessage = nil
+        log("🚀 生成选题...")
 
         let templates = AITemplates.load()
         let systemPrompt = templates.topic.render()
-        log("📝 模板长度: \(systemPrompt.count) 字符, 变量: \(templates.topic.variables.count)个")
+        log("📝 模板 \(systemPrompt.count) 字符")
 
         Task {
             do {
-                log("⏳ 请求 API...")
                 let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: "请生成", temperature: 0.8)
-                log("📥 返回: \(r.prefix(100))...")
+                log("📥 返回 \(r.prefix(80))...")
 
                 let parsed = try parseJSON(r)
-                log("✅ 解析成功: \(parsed.count) 个选题")
-
-                var p = project!
-                p.topicCandidates = parsed.enumerated().map { i, item in
+                topics = parsed.enumerated().map { i, item in
                     TopicCandidate(title: item.title, description: item.desc, sortOrder: i)
                 }
-                p.status = .topicsReady
-                store?.upsert(p); project = p
-                topics = p.sortedTopics
                 isLoading = false
-                log("✅ 选题已更新到 UI")
+                log("✅ \(topics.count) 个选题")
             } catch {
-                log("❌ 失败: \(error.localizedDescription)")
                 errorMessage = "生成失败：\(error.localizedDescription)"
                 isLoading = false
+                log("❌ \(error.localizedDescription)")
             }
         }
     }
@@ -63,46 +59,43 @@ final class TopicViewModel: ObservableObject {
     // MARK: - 测试数据
 
     func loadMockData() {
-        log("🧪 注入测试数据...")
         topics = [
-            TopicCandidate(title: "你那么懂事，一定很累吧", description: "总是照顾别人感受的你，有没有问过自己快不快乐", sortOrder: 0),
-            TopicCandidate(title: "他回消息越来越慢", description: "从秒回到轮回，一段感情是怎么悄悄死掉的", sortOrder: 1),
-            TopicCandidate(title: "月薪八千干了三年没涨过", description: "老实人是怎么被职场一步步榨干的", sortOrder: 2),
-            TopicCandidate(title: "你妈说为你好", description: "那些以爱为名的绑架，你还要忍多久", sortOrder: 3),
-            TopicCandidate(title: "看清一个人的瞬间", description: "哪一刻你突然发现，这个人其实不值得", sortOrder: 4),
-            TopicCandidate(title: "你不是脾气不好，是委屈攒够了", description: "每一次爆发背后，都是积压已久的失望", sortOrder: 5),
+            TopicCandidate(title: "你那么懂事，一定很累吧", description: "总是照顾别人感受的你", sortOrder: 0),
+            TopicCandidate(title: "他回消息越来越慢", description: "从秒回到轮回，感情怎么悄悄死掉的", sortOrder: 1),
+            TopicCandidate(title: "月薪八千干了三年没涨过", description: "老实人被职场榨干", sortOrder: 2),
+            TopicCandidate(title: "你妈说为你好", description: "以爱为名的绑架", sortOrder: 3),
+            TopicCandidate(title: "看清一个人的瞬间", description: "哪一刻发现不值得", sortOrder: 4),
+            TopicCandidate(title: "你不是脾气不好，是委屈攒够了", description: "每一次爆发都是积压的失望", sortOrder: 5),
         ]
-        var p = project!; p.topicCandidates = topics; p.status = .topicsReady
-        store?.upsert(p); project = p
-        log("✅ 测试数据已加载")
+        isLoading = false
+        log("🧪 测试数据 \(topics.count) 个")
     }
 
-    // MARK: - 选中选题 → 自动创建项目
+    // MARK: - 选中选题 → 自动创建 Project
 
-    func selectTopic(_ topic: TopicCandidate) {
-        selectedTopicID = topic.id
+    /// 用户选中一个选题，自动创建 Project，返回 projectID
+    func selectTopicAndCreateProject(_ topic: TopicCandidate) -> UUID? {
+        guard let store = store else {
+            log("❌ store 为 nil，无法创建项目")
+            return nil
+        }
 
-        var p = project!
+        selectedTopic = topic
+
+        // 创建 Project，用选题标题作为项目名
+        var p = Project(name: topic.title)
+        p.topicCandidates = topics
         p.selectedTopicID = topic.id
-        // 自动用选题标题作为项目名
-        p.name = topic.title
-        if p.status == .draft || p.status == .topicsReady { p.status = .topicSelected }
-        store?.upsert(p)
-        project = p
-        log("✅ 选中「\(topic.title)」，项目名已更新")
-    }
+        p.status = .topicSelected
+        store.upsert(p)
 
-    // MARK: - 收藏
-
-    func toggleFavorite(_ topic: TopicCandidate) {
-        guard let idx = topics.firstIndex(where: { $0.id == topic.id }) else { return }
-        topics[idx].isFavorited.toggle()
-        var p = project!; p.topicCandidates = topics; store?.upsert(p); project = p
+        log("✅ 创建项目「\(p.name)」id=\(p.id)")
+        return p.id
     }
 
     // MARK: - 日志
 
-    private func log(_ msg: String) { print("[TopicVM] \(msg)"); lastDebugLog = msg }
+    private func log(_ msg: String) { print("[TopicVM] \(msg)"); lastLog = msg }
 
     // MARK: - JSON 解析
 
@@ -110,10 +103,9 @@ final class TopicViewModel: ObservableObject {
         let d: Data
         if let data = text.data(using: .utf8) { d = data }
         else if let ex = extractJSON(text) { d = ex }
-        else { throw NSError(domain: "Parse", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法解析返回数据"]) }
+        else { throw NSError(domain: "Parse", code: -1) }
         guard let j = try JSONSerialization.jsonObject(with: d) as? [[String: String]] else {
-            log("❌ JSON 格式不对，内容: \((try? String(data: d, encoding: .utf8))?.prefix(200) ?? "N/A")")
-            throw NSError(domain: "Parse", code: -1, userInfo: [NSLocalizedDescriptionKey: "数据格式不符"])
+            throw NSError(domain: "Parse", code: -1)
         }
         return j.compactMap { guard let t = $0["title"] else { return nil }; return (t, $0["description"] ?? "") }
     }
