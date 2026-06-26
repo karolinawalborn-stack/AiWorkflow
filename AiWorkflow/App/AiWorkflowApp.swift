@@ -11,19 +11,12 @@ struct AiWorkflowApp: App {
             .appendingPathComponent("AiWorkflowData", isDirectory: true)
         self.store = ProjectStore(directory: dir)
 
-        // 真实 API 模式（AI领航局-内部工具站）
-        let settings = UserSettings.load()
-        let config = AIProviderConfig(
-            baseURL: settings.apiBaseURL,
-            apiKey: settings.apiKey,
-            textModel: settings.textModelID,
-            imageModel: settings.imageModelID
-        )
+        // ── 真实 API 模式：AI领航局-内部工具站适配器 ──
+        // 如需 Mock，注释下方 5 行，取消注释最后 2 行
+        let config = AIProviderConfig.loadFromDefaults()
         let client = HTTPClient()
-        self.textService = AITextService(httpClient: client, config: config)
-        self.imageService = AIImageService(httpClient: client, config: config)
-
-        // 如需 Mock：注释上面6行，取消注释下面2行
+        self.textService = InternalToolStationTextAdapter(httpClient: client, config: config)
+        self.imageService = InternalToolStationImageAdapter(httpClient: client, config: config)
         // self.textService = MockTextService()
         // self.imageService = MockImageService()
     }

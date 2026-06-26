@@ -3,11 +3,12 @@ import Foundation
 import UIKit
 #endif
 
+/// Mock 图片服务——生成占位图
 final class MockImageService: AIImageServiceProtocol {
-    func generateImage(prompt: String, size: String, n: Int) async throws -> [GeneratedImageResult] {
+    func generateImage(prompt: String, size: String, n: Int) async throws -> [ImageGenerationResult] {
         try await Task.sleep(nanoseconds: 2_000_000_000)
         return (0..<n).map { _ in
-            GeneratedImageResult(data: Self.placeholder(size: size), url: nil, revisedPrompt: "【Mock】\(prompt)")
+            ImageGenerationResult(imageData: Self.placeholder(size: size), revisedPrompt: "【Mock】\(prompt)")
         }
     }
 
@@ -25,7 +26,7 @@ final class MockImageService: AIImageServiceProtocol {
                 .foregroundColor: UIColor.lightGray,
                 .paragraphStyle: style,
             ]
-            ("双格漫画\nMock Image" as NSString).draw(in: CGRect(x: 0, y: dim.height/2 - 30, width: dim.width, height: 60), withAttributes: attrs)
+            ("双格漫画\nMock" as NSString).draw(in: CGRect(x: 0, y: dim.height/2-30, width: dim.width, height: 60), withAttributes: attrs)
         }
         return image.jpegData(compressionQuality: 0.8)
         #else
