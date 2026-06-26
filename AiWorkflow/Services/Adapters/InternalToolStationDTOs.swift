@@ -220,10 +220,9 @@ enum FlexibleImageResponseParser {
                 print("\(indent)📦 [递归] ✅ 找到内联 URL: \(str.prefix(80))")
                 return (str, nil, nil, nil)
             }
-            if !str.contains(" ") \&\& str.count > 100 \&\& str.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
             if !str.contains(" ") && str.count > 100 && str.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
                 print("\(indent)📦 [递归] ✅ 找到疑似 base64: 长度=\(str.count)")
-                return (nil, str, nil)
+                return (nil, str, nil, nil)
             }
         }
 
