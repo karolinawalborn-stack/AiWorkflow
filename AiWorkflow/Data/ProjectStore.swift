@@ -29,16 +29,27 @@ final class ProjectStore: @unchecked Sendable {
     }
 
     private func load() {
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let items = try? JSONDecoder().decode([Project].self, from: data)
-        else { return }
-        cache = [:]
-        for item in items { cache[item.id] = item }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let items = try JSONDecoder().decode([Project].self, from: data)
+            cache = [:]
+            for item in items { cache[item.id] = item }
+            print("📦 [ProjectStore] load: \(cache.count) projects")
+        } catch {
+            print("📦 [ProjectStore] load 失败: \(error)")
+            // 文件损坏，重置
+            cache = [:]
+            try? FileManager.default.removeItem(at: fileURL)
+        }
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(Array(cache.values)) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(Array(cache.values))
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            print("📦 [ProjectStore] save 失败: \(error)")
+        }
     }
 }

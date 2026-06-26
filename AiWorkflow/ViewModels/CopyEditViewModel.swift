@@ -95,21 +95,31 @@ final class CopyEditViewModel: ObservableObject {
         }
     }
 
-    /// 加载本地测试文案（跳过 API）
+    /// 加载本地测试文案（跳过 API，不碰 store）
     func loadMockCopy() {
-        print("🧪 [CopyEdit] 加载测试文案")
+        print("🧪 [CopyEdit] ===== 加载测试文案 =====")
         isLoading = false; errorMessage = nil
-        cards = [
-            CopywritingCard(cardIndex: 0, topFrame: "你又一次把聊天记录翻到最上面", bottomFrame: "原来一个人变心前连标点符号都会变"),
-            CopywritingCard(cardIndex: 1, topFrame: "他说只是加班，你信了", bottomFrame: "一个装睡的人叫不醒，但你可以选择先醒"),
-            CopywritingCard(cardIndex: 2, topFrame: "领导拍拍你的肩说能者多劳", bottomFrame: "能者多劳的下半句是——多劳者未必多得"),
-            CopywritingCard(cardIndex: 3, topFrame: "你妈说：不结婚就是不孝", bottomFrame: "孝顺不是活成别人想要的样子"),
-            CopywritingCard(cardIndex: 4, topFrame: "你帮他找了一万种借口", bottomFrame: "你值得被明目张胆的偏爱"),
-            CopywritingCard(cardIndex: 5, topFrame: "你说没事，然后一个人把委屈咽了回去", bottomFrame: "从今天起先照顾好自己，再对世界温柔"),
+
+        // 直接构造 CopywritingCard 数组，不涉及任何 JSON 编解码
+        let mockData: [(Int, String, String)] = [
+            (0, "你又一次把聊天记录翻到最上面", "原来一个人变心前连标点符号都会变"),
+            (1, "他说只是加班，你信了", "一个装睡的人叫不醒，但你可以选择先醒"),
+            (2, "领导拍拍你的肩说能者多劳", "能者多劳的下半句是——多劳者未必多得"),
+            (3, "你妈说：不结婚就是不孝", "孝顺不是活成别人想要的样子"),
+            (4, "你帮他找了一万种借口", "你值得被明目张胆的偏爱"),
+            (5, "你说没事，然后一个人把委屈咽了回去", "从今天起先照顾好自己，再对世界温柔"),
         ]
-        if var p = project { p.copywritingCards = cards; store?.upsert(p); project = p }
-        progressText = "🧪 测试文案已加载"
-        print("✅ [CopyEdit] 测试文案已加载: \(cards.count) 张")
+
+        var result: [CopywritingCard] = []
+        for (idx, top, bottom) in mockData {
+            let card = CopywritingCard(cardIndex: idx, topFrame: top, bottomFrame: bottom)
+            print("📝 [CopyEdit]   构造 card[\(idx)]: id=\(card.id), top=\(card.topFrame.prefix(20))..., bottom=\(card.bottomFrame.prefix(20))...")
+            result.append(card)
+        }
+
+        cards = result
+        progressText = "🧪 测试文案已加载 \(result.count) 张"
+        print("✅ [CopyEdit] 测试文案加载完成: \(cards.count) 张，不涉及任何 JSON 解析")
     }
 
     func updateCard(index: Int, top: String, bottom: String) {
