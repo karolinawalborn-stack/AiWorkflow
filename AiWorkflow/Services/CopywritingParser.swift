@@ -13,27 +13,54 @@ enum ParseMode: String {
 
 enum CopywritingParser {
 
+    /// 解析文案并确保结果数量 = expectedCount
+    /// - 超出则截断
+    /// - 不足则补空卡
     static func parse(rawText: String, expectedCount: Int = 6) -> CopywritingParseResult {
         print("📖 [CopyParser] 开始解析 长度=\(rawText.count) 期望\(expectedCount)张")
 
         // 1. JSON
         if let jsonResult = tryParseJSON(rawText) {
-            let filled = jsonResult.filter { !$0.topText.isEmpty }
-            print("✅ [CopyParser] JSON 解析: \(jsonResult.count) 张 (含内容\(filled.count)张)")
-            for c in jsonResult { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30))") }
-            return CopywritingParseResult(cards: jsonResult, mode: .json, rawText: rawText, error: nil)
+            let adjusted = normalizeCardCount(jsonResult, expected: expectedCount)
+            let filled = adjusted.filter { !$0.topText.isEmpty }
+            print("✅ [CopyParser] JSON 解析: raw=\(jsonResult.count) → adjusted=\(adjusted.count) 张 (含内容\(filled.count)张)")
+            for c in adjusted { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30))") }
+            return CopywritingParseResult(cards: adjusted, mode: .json, rawText: rawText, error: nil)
         }
 
         // 2. 按行文本解析
         if let textResult = parseTextLines(rawText) {
-            let filled = textResult.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }
-            print("✅ [CopyParser] 文本解析: \(textResult.count) 张 (完整\(filled.count)/\(textResult.count))")
-            for c in textResult { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30)) purpose=\(c.purpose.prefix(20))") }
-            return CopywritingParseResult(cards: textResult, mode: .text, rawText: rawText, error: nil)
+            let adjusted = normalizeCardCount(textResult, expected: expectedCount)
+            let filled = adjusted.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }
+            print("✅ [CopyParser] 文本解析: raw=\(textResult.count) → adjusted=\(adjusted.count) 张 (完整\(filled.count)/\(adjusted.count))")
+            for c in adjusted { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30)) purpose=\(c.purpose.prefix(20))") }
+            return CopywritingParseResult(cards: adjusted, mode: .text, rawText: rawText, error: nil)
         }
 
         print("❌ [CopyParser] 全部解析失败")
         return CopywritingParseResult(cards: [], mode: .failed, rawText: rawText, error: "无法从返回内容中提取文案结构")
+    }
+
+    // MARK: - 数量归一化：截断或补齐到 expected 张
+
+    private static func normalizeCardCount(_ cards: [CopywritingCard], expected: Int) -> [CopywritingCard] {
+        if cards.count == expected {
+            return cards
+        } else if cards.count > expected {
+            print("⚠️ [CopyParser] 卡片超出 \(expected) 张（实际 \(cards.count)），截断到 \(expected)")
+            return Array(cards.prefix(expected))
+        } else {
+            print("⚠️ [CopyParser] 卡片不足 \(expected) 张（实际 \(cards.count)），补齐 \(expected - cards.count) 张空卡")
+            var result = cards
+            let existingIndices = Set(cards.map { $0.cardIndex })
+            var nextIndex = 0
+            for _ in 0..<(expected - cards.count) {
+                while existingIndices.contains(nextIndex) { nextIndex += 1 }
+                result.append(CopywritingCard(cardIndex: nextIndex))
+                nextIndex += 1
+            }
+            return result
+        }
     }
 
     // MARK: - JSON
@@ -75,7 +102,6 @@ enum CopywritingParser {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
 
-            // 首行类型：卡序号
             let isCardHeader = line.hasPrefix("第") && line.contains("张")
             let isCardHeader2 = line.hasPrefix("card") || line.hasPrefix("Card") || line.hasPrefix("CARD")
 
@@ -86,23 +112,19 @@ enum CopywritingParser {
                 continue
             }
 
-            // 上半格
             if let val = extractAfterColon(line, keywords: ["- 上半格文案", "上半格文案", "- 上半格", "上半格", "topText", "topFrame", "Top:"]) {
                 top = val
                 continue
             }
-            // 下半格
             if let val = extractAfterColon(line, keywords: ["- 下半格文案", "下半格文案", "- 下半格", "下半格", "bottomText", "bottomFrame", "Bottom:"]) {
                 bottom = val
                 continue
             }
-            // 作用
             if let val = extractAfterColon(line, keywords: ["- 这一张的作用", "这一张的作用", "- 作用", "作用", "purpose", "Purpose:"]) {
                 purpose = val
                 continue
             }
 
-            // 宽泛匹配——含"上半格"但不含"下半格"
             if line.contains("上半格") && !line.contains("下半格") {
                 if top.isEmpty { top = extractFallback(line) }
                 continue
@@ -119,7 +141,6 @@ enum CopywritingParser {
 
         flushCard(&cards, ci, top, bottom, purpose)
 
-        // 如果按卡片头没分出，尝试每行独立 JSON
         if cards.isEmpty {
             for line in lines {
                 let t = line.trimmingCharacters(in: .whitespaces)
@@ -143,7 +164,6 @@ enum CopywritingParser {
         cards.append(CopywritingCard(cardIndex: ci, topText: top, bottomText: bottom, purpose: purpose))
     }
 
-    /// 从行中提取冒号后的内容，支持中英文冒号
     private static func extractAfterColon(_ line: String, keywords: [String]) -> String? {
         var found = false
         var afterKeyword = line
@@ -156,7 +176,6 @@ enum CopywritingParser {
         }
         guard found else { return nil }
 
-        // 找冒号
         let colonChars: [Character] = ["：", ":"]
         for c in colonChars {
             if let idx = afterKeyword.firstIndex(of: c) {
@@ -165,12 +184,10 @@ enum CopywritingParser {
             }
         }
 
-        // 没冒号，直接返回关键词后的内容
         let val = afterKeyword.trimmingCharacters(in: .whitespaces)
         return val.isEmpty ? nil : val
     }
 
-    /// 宽泛提取：找冒号后的内容
     private static func extractFallback(_ line: String) -> String {
         let colonChars: [Character] = ["：", ":"]
         for c in colonChars {

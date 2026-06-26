@@ -1,8 +1,13 @@
 import SwiftUI
 
+///
+/// 文案编辑 ViewModel — 单一数据源设计
+///
+/// 唯一文案数据源：project.copywritingCards
+/// 所有读/写都直接走 project，不再维护局部副本。
+///
 @MainActor
 final class CopyEditViewModel: ObservableObject {
-    @Published var cards: [CopywritingCard] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var progressText: String = ""
@@ -11,21 +16,60 @@ final class CopyEditViewModel: ObservableObject {
     @Published var rawResponse: String = ""
     @Published var parseMode: String = ""
 
-    var project: Project?
+    @Published var project: Project?
     private var store: ProjectStore?
     private var textService: AITextServiceProtocol?
     private var currentTask: Task<Void, Never>?
 
+    // MARK: - 单一数据源：直接从 project 读取，无局部副本
+
+    /// 排序后的文案卡片（UI 唯一数据源）
+    var cards: [CopywritingCard] {
+        project?.sortedCopyCards ?? []
+    }
+
+    /// 非空格数（上下两格都有内容才算）
+    var nonEmptyCardCount: Int {
+        cards.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }.count
+    }
+
+    /// 文案是否完整生成（6 张且每张都有上下格内容）
+    var isCopyReady: Bool {
+        cards.count == 6 && cards.allSatisfy { !$0.topText.isEmpty && !$0.bottomText.isEmpty }
+    }
+
+    // MARK: - 设置
+
     func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project, userTopic: String, extraRequirements: String) {
-        self.store = store; self.textService = textService; self.project = project
-        self.userTopic = userTopic; self.extraRequirements = extraRequirements
-        self.cards = project.copywritingCards.sorted { $0.cardIndex < $1.cardIndex }
-        let filled = cards.filter { !$0.topText.isEmpty }
-        print("📝 [CopyEdit] setup: topic=\(userTopic.prefix(30))... cards=\(cards.count) 非空=\(filled.count)")
+        self.store = store
+        self.textService = textService
+        self.project = project
+        self.userTopic = userTopic
+        self.extraRequirements = extraRequirements
+
+        let filled = project.copywritingCards.filter { !$0.topText.isEmpty }
+        print("""
+        📝 [CopyEdit] setup:
+           topic=\(userTopic.prefix(30))...
+           project.cards=\(project.copywritingCards.count) 张
+           非空=\(filled.count) 张
+        """)
+        for c in project.sortedCopyCards {
+            print("   card[\(c.cardIndex)] top=「\(c.topText.prefix(30))」 bottom=「\(c.bottomText.prefix(30))」")
+        }
     }
 
     deinit {
         currentTask?.cancel()
+    }
+
+    /// 持久化当前 project 到 store
+    func saveProject() {
+        guard let p = project, let s = store else { return }
+        var np = p
+        np.updatedAt = Date()
+        s.upsert(np)
+        project = np
     }
 
     // MARK: - 生成文案
@@ -38,10 +82,12 @@ final class CopyEditViewModel: ObservableObject {
         let topic = userTopic.trimmingCharacters(in: .whitespaces)
         guard !topic.isEmpty else { errorMessage = "选题为空"; return }
 
-        // 取消旧任务
         currentTask?.cancel()
-        isLoading = true; errorMessage = nil; progressText = "正在生成文案..."
-        rawResponse = ""; parseMode = ""
+        isLoading = true
+        errorMessage = nil
+        progressText = "正在生成文案..."
+        rawResponse = ""
+        parseMode = ""
 
         var copyTemplate = AITemplates.load().copywriting
         if let idx = copyTemplate.variables.firstIndex(where: { $0.key == "selected_topic" }) {
@@ -73,11 +119,14 @@ final class CopyEditViewModel: ObservableObject {
                     return
                 }
 
-                // 检查卡片是否真的有内容
+                // ── 调试日志：解析结果 ──
+                print("📊 [CopyEdit] 解析结果: \(result.cards.count)张")
+                for c in result.cards {
+                    print("   card[\(c.cardIndex)] top=「\(c.topText.prefix(40))」 bottom=「\(c.bottomText.prefix(40))」 purpose=「\(c.purpose)」")
+                }
+
                 let withTop = result.cards.filter { !$0.topText.isEmpty }
                 let withBottom = result.cards.filter { !$0.bottomText.isEmpty }
-                print("📊 [CopyEdit] 解析结果: \(result.cards.count)张, 有上=\(withTop.count), 有下=\(withBottom.count)")
-
                 if withTop.count == 0 && withBottom.count == 0 {
                     print("❌ [CopyEdit] 解析返回0张有效卡片！原始响应前500字: \(r.prefix(500))")
                     errorMessage = "收到响应但未能提取文案内容，请查看原始响应"
@@ -85,15 +134,25 @@ final class CopyEditViewModel: ObservableObject {
                     return
                 }
 
+                // ── 写入 project（唯一数据源） ──
                 var np = p
                 np.copywritingCards = result.cards
-                if np.status == .draft || np.status == .topicsReady || np.status == .topicSelected { np.status = .copyReady }
-                store?.upsert(np); project = np
-                cards = result.cards.sorted { $0.cardIndex < $1.cardIndex }
+                if np.status == .draft || np.status == .topicsReady || np.status == .topicSelected {
+                    np.status = .copyReady
+                }
+                np.updatedAt = Date()
+                store?.upsert(np)
+                project = np
+
+                // ── 调试日志：写入后验证 ──
+                print("📝 [CopyEdit] 写入后 project.copywritingCards:")
+                for c in np.sortedCopyCards {
+                    print("   card[\(c.cardIndex)] top=「\(c.topText.prefix(40))」 bottom=「\(c.bottomText.prefix(40))」")
+                }
 
                 isLoading = false
-                let total = cards.count
-                let nonEmpty = cards.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }.count
+                let total = np.copywritingCards.count
+                let nonEmpty = np.copywritingCards.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }.count
                 progressText = "✅ \(nonEmpty)/\(total) 张已生成（\(result.mode.rawValue)）"
                 print("✅ [CopyEdit] 完成: \(nonEmpty)/\(total) 张, 模式=\(result.mode.rawValue)")
 
@@ -104,9 +163,17 @@ final class CopyEditViewModel: ObservableObject {
             } catch let ne as NetworkError {
                 if case .connectionFailed(let e) = ne {
                     let ns = e as NSError
-                    if ns.domain == NSURLErrorDomain && (ns.code == NSURLErrorCancelled || ns.code == NSURLErrorNetworkConnectionLost) {
-                        print("⏹ [CopyEdit] 请求因网络变化/后台取消: \(ns.code)")
-                        errorMessage = "请求被中断（后台/网络变化），请重新生成"
+                    if ns.domain == NSURLErrorDomain {
+                        switch ns.code {
+                        case NSURLErrorCancelled:
+                            print("⏹ [CopyEdit] 请求被取消（后台/主动）")
+                            errorMessage = "应用进入后台，当前请求已中断，请重新生成"
+                        case NSURLErrorNetworkConnectionLost:
+                            print("⏹ [CopyEdit] 网络连接断开")
+                            errorMessage = "网络连接断开，请检查网络后重试"
+                        default:
+                            errorMessage = "网络错误：\(ns.localizedDescription)"
+                        }
                         isLoading = false; progressText = ""
                         return
                     }
@@ -115,14 +182,19 @@ final class CopyEditViewModel: ObservableObject {
                 isLoading = false; progressText = ""
                 print("❌ [CopyEdit] [\(ne.category)]")
             } catch {
-                // URLSession 取消错误
                 let ns = error as NSError
-                if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
-                    errorMessage = "请求被中断（后台/网络变化），请重新生成"
-                    isLoading = false; progressText = ""
-                    return
+                if ns.domain == NSURLErrorDomain {
+                    switch ns.code {
+                    case NSURLErrorCancelled:
+                        errorMessage = "应用进入后台，当前请求已中断，请重新生成"
+                    case NSURLErrorNetworkConnectionLost:
+                        errorMessage = "网络连接断开，请检查网络后重试"
+                    default:
+                        errorMessage = "网络错误：\(ns.localizedDescription)"
+                    }
+                } else {
+                    errorMessage = "生成失败：\(error.localizedDescription)"
                 }
-                errorMessage = "生成失败：\(error.localizedDescription)"
                 isLoading = false; progressText = ""
                 print("❌ [CopyEdit] \(error.localizedDescription)")
             }
@@ -151,24 +223,39 @@ final class CopyEditViewModel: ObservableObject {
             print("   card[\(idx)] top=\(top.prefix(20))... bottom=\(bottom.prefix(20))...")
         }
 
-        cards = mock
+        // ── 写入 project（唯一数据源） ──
+        var np = project ?? Project(name: "测试项目")
+        np.copywritingCards = mock
+        np.status = .copyReady
+        np.updatedAt = Date()
+        store?.upsert(np)
+        project = np
+
         progressText = "🧪 测试文案 \(mock.count) 张"
         parseMode = "local"
 
-        // 调试验证
-        print("🔍 [CopyEdit] cards 加载后验证:")
-        for c in cards {
-            print("   card[\(c.cardIndex)] topText=「\(c.topText)」bottomText=「\(c.bottomText)」purpose=「\(c.purpose)」")
+        print("🔍 [CopyEdit] 写入后 project.copywritingCards 验证:")
+        for c in np.sortedCopyCards {
+            print("   card[\(c.cardIndex)] topText=「\(c.topText)」 bottomText=「\(c.bottomText)」 purpose=「\(c.purpose)」")
         }
     }
 
-    // MARK: - 编辑
+    // MARK: - 编辑（直接写入 project + 持久化）
 
     func updateCard(index: Int, topText: String, bottomText: String, purpose: String = "") {
-        guard index < cards.count else { return }
-        cards[index].topText = topText
-        cards[index].bottomText = bottomText
-        cards[index].purpose = purpose
-        cards[index].isEdited = true
+        guard var p = project, index < p.copywritingCards.count else {
+            print("⚠️ [CopyEdit] updateCard 跳过: index=\(index), cards.count=\(project?.copywritingCards.count ?? -1)")
+            return
+        }
+        p.copywritingCards[index].topText = topText
+        p.copywritingCards[index].bottomText = bottomText
+        p.copywritingCards[index].purpose = purpose
+        p.copywritingCards[index].isEdited = true
+        p.updatedAt = Date()
+        store?.upsert(p)
+        project = p
+        #if DEBUG
+        print("📝 [CopyEdit] updateCard[\(index)]: top=「\(topText)」 bottom=「\(bottomText)」")
+        #endif
     }
 }

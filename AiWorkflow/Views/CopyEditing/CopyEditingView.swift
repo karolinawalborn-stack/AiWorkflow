@@ -35,9 +35,32 @@ struct CopyEditingView: View {
                         }.buttonStyle(.bordered).tint(.orange)
                     }
 
+                    // ── 状态/调试信息 ──
                     if !vm.parseMode.isEmpty {
                         Text("解析模式: \(vm.parseMode)  |  卡片: \(vm.cards.count) 张")
                             .font(.caption).foregroundColor(.secondary)
+                    }
+
+                    // ── 文案完整性状态 ──
+                    if !vm.cards.isEmpty {
+                        HStack {
+                            if vm.isCopyReady {
+                                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                                Text("文案生成完成（\(vm.cards.count)/\(vm.cards.count) 张完整）")
+                                    .font(.caption).foregroundColor(.green)
+                            } else if vm.cards.allSatisfy({ $0.isEmpty }) {
+                                Image(systemName: "exclamationmark.circle").foregroundColor(.orange)
+                                Text("已收到原始响应，但未成功写入文案卡片")
+                                    .font(.caption).foregroundColor(.orange)
+                            } else {
+                                Image(systemName: "pencil.circle").foregroundColor(.blue)
+                                Text("编辑中... \(vm.nonEmptyCardCount)/\(vm.cards.count) 张完整")
+                                    .font(.caption).foregroundColor(.blue)
+                            }
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.systemGray6)).cornerRadius(8)
                     }
 
                     // ── 卡片内容 ──
@@ -83,12 +106,15 @@ struct CopyEditingView: View {
             VStack(spacing: 0) {
                 Divider()
                 HStack {
-                    let nonEmpty = vm.cards.filter { !$0.topText.isEmpty || !$0.bottomText.isEmpty }.count
-                    Text("\(nonEmpty)/\(vm.cards.count) 张已填写").font(.caption).foregroundColor(.secondary)
+                    Text("\(vm.nonEmptyCardCount)/\(vm.cards.count) 张已填写").font(.caption).foregroundColor(.secondary)
                     Spacer()
-                    Button("下一步：生图提示词") { goNext = true }
-                        .font(.subheadline).buttonStyle(.borderedProminent)
-                        .disabled(nonEmpty == 0)
+                    Button("下一步：生图提示词") {
+                        // 导航前确保 project 已持久化
+                        vm.saveProject()
+                        goNext = true
+                    }
+                    .font(.subheadline).buttonStyle(.borderedProminent)
+                    .disabled(vm.nonEmptyCardCount == 0)
                 }.padding()
             }.background(Color(.systemBackground))
         }
@@ -121,13 +147,14 @@ struct CopyCardRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("第\(card.cardIndex + 1)张").font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
 
-            // 调试显示
+            // 预览行（只读，跟随 @State 显示）
             HStack {
                 if !topText.isEmpty { Text("上: \(topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
                 if !bottomText.isEmpty { Text("下: \(bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
                 if !purpose.isEmpty { Text("作用: \(purpose)").font(.caption2).foregroundColor(.secondary) }
             }
 
+            // 编辑区
             VStack(spacing: 0) {
                 TextField("上半格文案", text: $topText, axis: .vertical)
                     .textFieldStyle(.plain).padding().lineLimit(2...3)
@@ -151,6 +178,20 @@ struct CopyCardRow: View {
             bottomText = card.bottomText
             purpose = card.purpose
             print("📱 [CopyCardRow] card[\(card.cardIndex)] id changed, reload: top=「\(card.topText)」")
+        }
+        // 内容级别同步：当 card 的内容在外部被修改时（相同 ID 但文字变了）
+        // 使用 guard 防止 onChange 循环
+        .onChange(of: card.topText) { newValue in
+            guard topText != newValue else { return }
+            topText = newValue
+        }
+        .onChange(of: card.bottomText) { newValue in
+            guard bottomText != newValue else { return }
+            bottomText = newValue
+        }
+        .onChange(of: card.purpose) { newValue in
+            guard purpose != newValue else { return }
+            purpose = newValue
         }
     }
 }

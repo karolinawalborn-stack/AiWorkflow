@@ -2,83 +2,171 @@ import SwiftUI
 
 @MainActor
 final class PromptViewModel: ObservableObject {
-    @Published var prompts: [PromptCard] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var lastCopied: String?
     @Published var rawResponse: String = ""
 
-    var project: Project?
+    @Published var project: Project?
     private var store: ProjectStore?
     private var textService: AITextServiceProtocol?
 
-    func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project) {
-        self.store = store; self.textService = textService; self.project = project
-        self.prompts = project.sortedPrompts
-        print("📝 [PromptVM] setup: prompts=\(prompts.count), 非空=\(prompts.filter { !$0.prompt.isEmpty }.count)")
+    // MARK: - 单一数据源：直接从 project 读取
+
+    /// 排序后的生图提示词（UI 唯一数据源）
+    var prompts: [PromptCard] {
+        project?.sortedPrompts ?? []
     }
+
+    var nonEmptyPromptCount: Int {
+        prompts.filter { !$0.prompt.isEmpty }.count
+    }
+
+    // MARK: - 设置
+
+    func setup(store: ProjectStore, textService: AITextServiceProtocol, project: Project) {
+        self.store = store
+        self.textService = textService
+        self.project = project
+
+        let nonEmpty = project.sortedPrompts.filter { !$0.prompt.isEmpty }.count
+        print("""
+        📝 [PromptVM] setup:
+           project 加载完成
+           copywritingCards=\(project.copywritingCards.count) 张
+           promptCards=\(project.promptCards.count) 张, 非空=\(nonEmpty)
+        """)
+
+        // 调试：打印文案数据源
+        for c in project.sortedCopyCards {
+            print("   copy[\(c.cardIndex)] top=「\(c.topText.prefix(30))」 bottom=「\(c.bottomText.prefix(30))」")
+        }
+    }
+
+    // MARK: - 持久化
+
+    private func saveProject() {
+        guard let p = project, let s = store else { return }
+        var np = p
+        np.updatedAt = Date()
+        s.upsert(np)
+        project = np
+    }
+
+    // MARK: - 生成提示词
 
     func generatePrompts() {
         print("🔵 [PromptVM] ===== 生成提示词 =====")
         guard let ts = textService else { errorMessage = "AI 服务未初始化"; return }
         guard let p = project else { errorMessage = "项目未加载"; return }
-        guard !p.copywritingCards.isEmpty else { errorMessage = "请先生成文案"; return }
+
+        // 关键修复：从 store 重新加载项目，获取最新文案
+        let freshProject: Project
+        if let s = store, let reloaded = s.project(id: p.id) {
+            freshProject = reloaded
+            project = reloaded
+            print("📦 [PromptVM] 从 store 重新加载 project，获取最新文案")
+        } else {
+            freshProject = p
+        }
+
+        guard !freshProject.copywritingCards.isEmpty else {
+            errorMessage = "请先生成文案"
+            isLoading = false
+            return
+        }
+
+        // ── 调试日志：从哪份数据读取文案 ──
+        print("📊 [PromptVM] 当前文案数据源验证:")
+        for c in freshProject.sortedCopyCards {
+            let topEmpty = c.topText.isEmpty ? "⚠️空" : "✅"
+            let bottomEmpty = c.bottomText.isEmpty ? "⚠️空" : "✅"
+            print("   card[\(c.cardIndex)] top=\(topEmpty)「\(c.topText.prefix(30))」 bottom=\(bottomEmpty)「\(c.bottomText.prefix(30))」")
+        }
+
+        let hasContent = freshProject.sortedCopyCards.contains { !$0.topText.isEmpty || !$0.bottomText.isEmpty }
+        guard hasContent else {
+            errorMessage = "文案内容为空，请先生成文案"
+            print("❌ [PromptVM] 文案卡片全部为空！")
+            return
+        }
 
         isLoading = true; errorMessage = nil; rawResponse = ""
 
-        let cardsText = p.sortedCopyCards.map {
+        let cardsText = freshProject.sortedCopyCards.map {
             "图\($0.cardIndex + 1)上:\($0.topText) | 下:\($0.bottomText)"
         }.joined(separator: "\n")
 
         var imgTemplate = AITemplates.load().imagePrompt
         if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "top_caption" }) {
-            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.topText }.joined(separator: " | ")
+            imgTemplate.variables[idx].value = freshProject.sortedCopyCards.map { $0.topText }.joined(separator: " | ")
         }
         if let idx = imgTemplate.variables.firstIndex(where: { $0.key == "bottom_caption" }) {
-            imgTemplate.variables[idx].value = p.sortedCopyCards.map { $0.bottomText }.joined(separator: " | ")
+            imgTemplate.variables[idx].value = freshProject.sortedCopyCards.map { $0.bottomText }.joined(separator: " | ")
         }
         let systemPrompt = imgTemplate.render()
         print("📝 [PromptVM] prompt长度=\(systemPrompt.count)")
 
         Task {
             do {
-                let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: "IP:\(p.ipStyle)\n比例:\(p.ratio)\n文案:\n\(cardsText)", temperature: 0.7)
+                let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: "IP:\(freshProject.ipStyle)\n比例:\(freshProject.ratio)\n文案:\n\(cardsText)", temperature: 0.7)
                 rawResponse = r
                 print("📥 [PromptVM] 返回长度=\(r.count), 前200: \(r.prefix(200))")
 
                 // 先试 JSON
                 if let parsed = try? parsePromptJSON(r) {
-                    var np = p; var npr = np.promptCards
+                    var np = freshProject
+                    let oldCount = np.promptCards.count
+                    // 如果 promptCards 数量不对，先重置
+                    if np.promptCards.count != np.imageCount {
+                        np.promptCards = (0..<np.imageCount).map { PromptCard(cardIndex: $0) }
+                        print("📦 [PromptVM] 重置 promptCards: \(oldCount) → \(np.imageCount)")
+                    }
                     var filled = 0
-                    for item in parsed where item.index < npr.count {
-                        npr[item.index].prompt = item.prompt
-                        npr[item.index].imageDescription = item.desc
+                    for item in parsed where item.index < np.promptCards.count {
+                        np.promptCards[item.index].prompt = item.prompt
+                        np.promptCards[item.index].imageDescription = item.desc
                         if !item.prompt.isEmpty { filled += 1 }
                     }
-                    np.promptCards = npr
                     if np.status == .copyReady || np.status == .topicSelected { np.status = .promptsReady }
-                    store?.upsert(np); project = np
-                    prompts = npr.sorted { $0.cardIndex < $1.cardIndex }
+                    np.updatedAt = Date()
+                    store?.upsert(np)
+                    project = np
+
                     isLoading = false
                     print("✅ [PromptVM] JSON 解析: \(parsed.count) 条, 非空=\(filled)")
+                    print("📝 [PromptVM] 写入后 promptCards:")
+                    for pr in np.sortedPrompts {
+                        print("   prompt[\(pr.cardIndex)] text=「\(pr.prompt.prefix(40))」")
+                    }
                     return
                 }
 
                 // JSON 失败，尝试文本解析
                 if let textParsed = parsePromptText(r) {
-                    var np = p; var npr = np.promptCards
+                    var np = freshProject
+                    let oldCount = np.promptCards.count
+                    if np.promptCards.count != np.imageCount {
+                        np.promptCards = (0..<np.imageCount).map { PromptCard(cardIndex: $0) }
+                        print("📦 [PromptVM] 重置 promptCards: \(oldCount) → \(np.imageCount)")
+                    }
                     var filled = 0
-                    for item in textParsed where item.index < npr.count {
-                        npr[item.index].prompt = item.prompt
-                        npr[item.index].imageDescription = item.desc
+                    for item in textParsed where item.index < np.promptCards.count {
+                        np.promptCards[item.index].prompt = item.prompt
+                        np.promptCards[item.index].imageDescription = item.desc
                         if !item.prompt.isEmpty { filled += 1 }
                     }
-                    np.promptCards = npr
                     if np.status == .copyReady || np.status == .topicSelected { np.status = .promptsReady }
-                    store?.upsert(np); project = np
-                    prompts = npr.sorted { $0.cardIndex < $1.cardIndex }
+                    np.updatedAt = Date()
+                    store?.upsert(np)
+                    project = np
+
                     isLoading = false
                     print("✅ [PromptVM] 文本解析: \(textParsed.count) 条, 非空=\(filled)")
+                    print("📝 [PromptVM] 写入后 promptCards:")
+                    for pr in np.sortedPrompts {
+                        print("   prompt[\(pr.cardIndex)] text=「\(pr.prompt.prefix(40))」")
+                    }
                     return
                 }
 
@@ -87,14 +175,30 @@ final class PromptViewModel: ObservableObject {
                 isLoading = false
 
             } catch let ne as NetworkError {
-                errorMessage = "生成失败：[\(ne.category)]"
-                isLoading = false; print("❌ [PromptVM] \(ne.category)")
-            } catch {
-                let ns = error as NSError
+                let ns = ne as NSError
                 if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
                     errorMessage = "请求被中断（后台），请重新生成"
-                } else { errorMessage = "生成失败：\(error.localizedDescription)" }
-                isLoading = false; print("❌ [PromptVM] \(error.localizedDescription)")
+                } else {
+                    errorMessage = "生成失败：[\(ne.category)]"
+                }
+                isLoading = false
+                print("❌ [PromptVM] \(ne.category)")
+            } catch {
+                let ns = error as NSError
+                if ns.domain == NSURLErrorDomain {
+                    switch ns.code {
+                    case NSURLErrorCancelled:
+                        errorMessage = "请求被中断（后台），请重新生成"
+                    case NSURLErrorNetworkConnectionLost:
+                        errorMessage = "网络连接断开，请检查网络后重试"
+                    default:
+                        errorMessage = "网络错误：\(ns.localizedDescription)"
+                    }
+                } else {
+                    errorMessage = "生成失败：\(error.localizedDescription)"
+                }
+                isLoading = false
+                print("❌ [PromptVM] \(error.localizedDescription)")
             }
         }
     }
@@ -126,7 +230,6 @@ final class PromptViewModel: ObservableObject {
                 if !val.isEmpty { prompt = val }
                 continue
             }
-            // 长行可能是提示词本身
             if line.count > 50 && prompt.isEmpty {
                 prompt = line
             }
@@ -176,8 +279,13 @@ final class PromptViewModel: ObservableObject {
     // MARK: - 其他
 
     func updatePrompt(at index: Int, prompt: String, description: String) {
-        guard index < prompts.count else { return }
-        prompts[index].prompt = prompt; prompts[index].imageDescription = description
+        guard var p = project, index < p.promptCards.count else { return }
+        p.promptCards[index].prompt = prompt
+        p.promptCards[index].imageDescription = description
+        p.updatedAt = Date()
+        store?.upsert(p)
+        project = p
+        print("📝 [PromptVM] updatePrompt[\(index)]: prompt=「\(prompt.prefix(30))」")
     }
 
     func copyPrompt(at index: Int) {
