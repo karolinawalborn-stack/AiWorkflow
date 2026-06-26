@@ -90,9 +90,9 @@ struct TopicSelectionView: View {
         .navigationDestination(isPresented: $goNext) { CopyEditingView(projectID: projectID) }
         .onAppear {
             print("🔵 [UI] TopicSelectionView.onAppear, projectID=\(projectID)")
-            if let p = store?.project(id: projectID) {
+            if let p = store.project(id: projectID) {
                 print("✅ [UI] 已加载 project: \(p.name)")
-                vm.setup(store: store!, textService: textService, project: p)
+                vm.setup(store: store, textService: textService, project: p)
                 if autoGenerate && p.topicCandidates.isEmpty {
                     print("🔄 [UI] autoGenerate=true，自动触发生成选题")
                     vm.generateTopics()
