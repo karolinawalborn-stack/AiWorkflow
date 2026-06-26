@@ -11,14 +11,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build with swiftc
+      - name: Compile with swiftc
         run: |
           set -e
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          mkdir -p Build/AiWorkflow.app
-          find . -name "*.swift" > /tmp/sources.txt
-          echo "Swift files: $(wc -l < /tmp/sources.txt)"
+          echo "SDK: $SDK"
 
+          mkdir -p Build/AiWorkflow.app
+
+          # 收集所有 Swift 源文件
+          find . -name "*.swift" -not -path "./.git/*" > /tmp/sources.txt
+          SRC_COUNT=$(wc -l < /tmp/sources.txt)
+          echo "Swift files: $SRC_COUNT"
+
+          if [ "$SRC_COUNT" -eq 0 ]; then
+            echo "❌ No Swift files found!"
+            exit 1
+          fi
+
+          # 编译为 iOS arm64 可执行文件
           xcrun swiftc \
             -target arm64-apple-ios16.0 \
             -sdk "$SDK" \
@@ -26,24 +37,116 @@ jobs:
             -emit-executable \
             -o Build/AiWorkflow.app/AiWorkflow \
             @/tmp/sources.txt \
-            -framework UIKit -framework SwiftUI -framework Foundation -framework Combine \
+            -framework UIKit \
+            -framework SwiftUI \
+            -framework Foundation \
+            -framework Combine \
             -Xlinker -rpath -Xlinker /usr/lib/swift \
             2>&1
 
-      - name: Copy Info.plist
+          echo "=== Compilation OK ==="
+
+      - name: Verify executable
         run: |
-          if [ -f "AiWorkflow/Resources/Info.plist" ]; then
-            cp AiWorkflow/Resources/Info.plist Build/AiWorkflow.app/
+          echo "=== Checking executable ==="
+          if [ ! -f "Build/AiWorkflow.app/AiWorkflow" ]; then
+            echo "❌ Executable not found!"
+            exit 1
           fi
+          FILE_SIZE=$(stat -f%z "Build/AiWorkflow.app/AiWorkflow" 2>/dev/null || stat --format=%s "Build/AiWorkflow.app/AiWorkflow" 2>/dev/null)
+          echo "Executable size: $FILE_SIZE bytes"
+          if [ "$FILE_SIZE" -lt 100000 ]; then
+            echo "⚠️ Warning: Executable seems too small ($FILE_SIZE bytes)"
+          fi
+          file Build/AiWorkflow.app/AiWorkflow
+          echo "=== Executable OK ==="
+
+      - name: Build .app bundle
+        run: |
+          set -e
+          APP="Build/AiWorkflow.app"
+
+          # 1. 复制 Info.plist
+          if [ -f "AiWorkflow/Resources/Info.plist" ]; then
+            cp AiWorkflow/Resources/Info.plist "$APP/"
+            echo "✅ Info.plist copied"
+          else
+            echo "❌ Info.plist not found"
+            exit 1
+          fi
+
+          # 2. 创建 PkgInfo（标准 iOS bundle 需要）
+          #    PkgInfo = 8字节: 4字节包类型(APPL) + 4字节签名(????)
+          printf 'APPL????' > "$APP/PkgInfo"
+          echo "✅ PkgInfo created"
+
+          # 3. 验证 Bundle 结构
+          echo ""
+          echo "=== .app bundle contents ==="
+          ls -la "$APP/"
+          echo ""
+          echo "=== Verifying bundle structure ==="
+
+          # 验证 CFBundleExecutable 对应的文件存在
+          EXEC_NAME=$(plutil -extract CFBundleExecutable xml1 -o - "$APP/Info.plist" 2>/dev/null | grep '<string>' | sed 's/<string>//;s/<\/string>//;s/^[[:space:]]*//')
+          echo "CFBundleExecutable = $EXEC_NAME"
+          if [ -f "$APP/$EXEC_NAME" ]; then
+            echo "✅ Main binary found: $EXEC_NAME"
+          else
+            echo "❌ Main binary NOT found: $APP/$EXEC_NAME"
+            ls -la "$APP/"
+            exit 1
+          fi
+
+          # 验证 CFBundlePackageType = APPL
+          PKG_TYPE=$(plutil -extract CFBundlePackageType xml1 -o - "$APP/Info.plist" 2>/dev/null | grep '<string>' | sed 's/<string>//;s/<\/string>//;s/^[[:space:]]*//')
+          echo "CFBundlePackageType = $PKG_TYPE"
+          if [ "$PKG_TYPE" != "APPL" ]; then
+            echo "❌ PackageType must be APPL, got $PKG_TYPE"
+            exit 1
+          fi
+
+          echo "✅ Bundle structure valid"
 
       - name: Package IPA
         run: |
+          set -e
+          # 标准 IPA 结构: Payload/AiWorkflow.app/
           mkdir -p Payload
           cp -R Build/AiWorkflow.app Payload/
+
+          # 清理 TrollStore 不需要的文件
           rm -f Payload/AiWorkflow.app/embedded.mobileprovision 2>/dev/null || true
           rm -rf Payload/AiWorkflow.app/_CodeSignature 2>/dev/null || true
+          rm -rf Payload/AiWorkflow.app/Frameworks 2>/dev/null || true
+
+          # 验证 Payload 结构
+          echo ""
+          echo "=== Payload structure ==="
+          ls -la Payload/
+          echo ""
+          ls -la Payload/AiWorkflow.app/
+
+          # 压缩为 IPA
           zip -r AiWorkflow_trollstore.ipa Payload/ -x "*.DS_Store"
           rm -rf Payload
+
+          echo ""
+          echo "=== Final IPA ==="
+          ls -lh AiWorkflow_trollstore.ipa
+
+      - name: Validate IPA
+        run: |
+          set -e
+          echo "=== IPA validation ==="
+          # 检查 IPA 是否为 zip 格式
+          unzip -l AiWorkflow_trollstore.ipa | head -20
+          echo ""
+          # 验证核心文件存在
+          unzip -l AiWorkflow_trollstore.ipa | grep -q "Payload/AiWorkflow.app/AiWorkflow" && echo "✅ Main binary in IPA" || echo "❌ Main binary MISSING"
+          unzip -l AiWorkflow_trollstore.ipa | grep -q "Payload/AiWorkflow.app/Info.plist" && echo "✅ Info.plist in IPA" || echo "❌ Info.plist MISSING"
+          unzip -l AiWorkflow_trollstore.ipa | grep -q "Payload/AiWorkflow.app/PkgInfo" && echo "✅ PkgInfo in IPA" || echo "❌ PkgInfo MISSING"
+          echo "=== Validation complete ==="
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4

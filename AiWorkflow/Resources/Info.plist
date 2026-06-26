@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>AI图文工作流</string>
     <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
+    <string>AiWorkflow</string>
     <key>CFBundleIdentifier</key>
     <string>com.aiworkflow.app</string>
     <key>CFBundleName</key>
