@@ -25,15 +25,11 @@ final class PromptViewModel: ObservableObject {
             "图\($0.cardIndex + 1)上:\($0.topFrame) | 下:\($0.bottomFrame)"
         }.joined(separator: "\n")
 
+        let systemPrompt = PromptTemplates.load().imagePrompt
+        let userMessage = "IP:\(p.ipStyle)\n比例:\(p.ratio)\n文案:\n\(cardsText)"
         Task {
             do {
-                let r = try await ts.chatCompletion(systemPrompt: """
-                    你是GPT Image 2生图提示词专家。根据双格漫画文案生成英文提示词。
-                    风格：白色圆头小人IP，深蓝黑压抑情绪背景，上下双格布局，带中文字幕框，3:4竖版。
-                    每张图包含上下双格，上格显示上半部分场景，下格显示下半部分场景。
-                    返回JSON: [{"cardIndex":0,"description":"中文画面描述","prompt":"英文完整提示词"}]
-                    仅返回JSON。
-                    """, userMessage: "IP:\(p.ipStyle)\n比例:\(p.ratio)\n文案:\n\(cardsText)", temperature: 0.7)
+                let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: userMessage, temperature: 0.7)
 
                 let parsed = try parsePromptJSON(r)
                 var np = p

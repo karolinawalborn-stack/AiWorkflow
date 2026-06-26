@@ -23,17 +23,11 @@ final class CopyEditViewModel: ObservableObject {
         isLoading = true; errorMessage = nil; progressText = "正在生成文案..."
 
         let topicTitle = selectedTopic?.title ?? p.name
+        let systemPrompt = PromptTemplates.load().copywriting
+        let userMessage = "为「\(topicTitle)」生成\(p.imageCount)张图。\n赛道：\(p.category)\n风格：\(p.style)"
         Task {
             do {
-                let r = try await ts.chatCompletion(systemPrompt: """
-                    你是一个抖音双格漫画文案师。为"\(topicTitle)"生成\(p.imageCount)张图的上下双格文案。
-                    每张图包含：
-                    - topFrame：上半格文案（受压/委屈/被消耗，15字内）
-                    - bottomFrame：下半格文案（清醒/反击/离开/止损，20字内）
-                    风格：扎心、共鸣、不说教，适合深蓝黑压抑情绪漫画。
-                    返回JSON: [{"cardIndex":0,"topFrame":"...","bottomFrame":"..."}]
-                    仅返回JSON。
-                    """, userMessage: "赛道：\(p.category)\n风格：\(p.style)", temperature: 0.8)
+                let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: userMessage, temperature: 0.8)
 
                 let parsed = try parseCopyJSON(r)
                 var np = p

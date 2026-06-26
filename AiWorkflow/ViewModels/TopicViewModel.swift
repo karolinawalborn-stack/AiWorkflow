@@ -32,14 +32,11 @@ final class TopicViewModel: ObservableObject {
         guard let ts = textService else { return }
         isLoading = true; errorMessage = nil
 
+        let systemPrompt = PromptTemplates.load().topic
+
         Task {
             do {
-                let r = try await ts.chatCompletion(systemPrompt: """
-                    你是一个抖音双格漫画内容策划。根据账号定位生成6个选题。
-                    每个包含 title（15字内吸引人标题）和 description（30字内核心角度）。
-                    返回JSON: [{"title":"...","description":"..."}]
-                    仅返回JSON。
-                    """, userMessage: positioningInput, temperature: 0.8)
+                let r = try await ts.chatCompletion(systemPrompt: systemPrompt, userMessage: positioningInput, temperature: 0.8)
 
                 let parsed = try parseJSON(r)
                 var p = project!
