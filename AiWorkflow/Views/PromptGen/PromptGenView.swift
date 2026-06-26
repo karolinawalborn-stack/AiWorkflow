@@ -25,18 +25,38 @@ struct PromptGenView: View {
                     } else {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("提示词（\(vm.prompts.count)条）").font(.subheadline.bold())
-                            ForEach(Array(vm.prompts.enumerated()), id: \.element.id) { idx, pr in
+
+                            // 调试：显示非空数量
+                            let nonEmpty = vm.prompts.filter { !$0.prompt.isEmpty }.count
+                            if nonEmpty < vm.prompts.count {
+                                Text("⚠️ 仅 \(nonEmpty)/\(vm.prompts.count) 条有内容").font(.caption).foregroundColor(.orange)
+                            }
+
+                            ForEach(vm.prompts) { pr in
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
                                         Text("图\(pr.cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
                                             .padding(.horizontal, 8).padding(.vertical, 4).background(Color.orange).cornerRadius(6)
                                         Spacer()
-                                        Button { vm.copyPrompt(at: idx) } label: { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain)
+                                        if !pr.prompt.isEmpty {
+                                            Button { vm.copyPrompt(at: vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0) } label: { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain)
+                                        }
                                     }
                                     if !pr.imageDescription.isEmpty { Text(pr.imageDescription).font(.caption).foregroundColor(.secondary) }
-                                    Text(pr.prompt).font(.system(size: 12, design: .monospaced)).lineLimit(5)
+                                    Text(pr.prompt.isEmpty ? "（空）" : pr.prompt)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(pr.prompt.isEmpty ? .secondary : .primary)
+                                        .lineLimit(5)
                                 }.padding().background(Color(.systemGray6)).cornerRadius(10)
                             }
+                        }
+                    }
+
+                    // 原始响应调试区
+                    if !vm.rawResponse.isEmpty {
+                        DisclosureGroup("原始响应 (\(vm.rawResponse.count)字符)") {
+                            Text(vm.rawResponse).font(.system(size: 10, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }.padding()

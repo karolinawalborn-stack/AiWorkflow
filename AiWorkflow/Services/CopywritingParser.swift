@@ -1,21 +1,5 @@
 import Foundation
 
-// ═══════════════════════════════════════════════════════
-//  文案解析器——将模型原始返回转为结构化的 CopywritingCard
-// ═══════════════════════════════════════════════════════
-//
-//  支持两种输入格式：
-//  1. JSON 数组：[{"cardIndex":0,"topText":"...","bottomText":"...","purpose":"..."}]
-//  2. 文本格式：
-//     第1张
-//     - 上半格文案：
-//     - 下半格文案：
-//     - 这一张的作用：
-//
-//  如果 JSON 解析失败，自动 fallback 到文本解析。
-//  如果都失败，返回错误原因 + 原始文本。
-// ═══════════════════════════════════════════════════════
-
 struct CopywritingParseResult {
     let cards: [CopywritingCard]
     let mode: ParseMode
@@ -24,129 +8,127 @@ struct CopywritingParseResult {
 }
 
 enum ParseMode: String {
-    case json, text, failed
+    case json, text, textFallback, failed
 }
 
 enum CopywritingParser {
 
-    /// 解析原始返回文本，优先 JSON 再 fallback 文本
     static func parse(rawText: String, expectedCount: Int = 6) -> CopywritingParseResult {
-        print("📖 [CopyParser] 开始解析，长度=\(rawText.count)字符，期望\(expectedCount)张")
+        print("📖 [CopyParser] 开始解析 长度=\(rawText.count) 期望\(expectedCount)张")
 
-        // 1. 尝试 JSON
-        if let jsonResult = tryParseJSON(rawText, expectedCount: expectedCount) {
-            print("✅ [CopyParser] JSON 解析成功: \(jsonResult.count) 张")
+        // 1. JSON
+        if let jsonResult = tryParseJSON(rawText) {
+            let filled = jsonResult.filter { !$0.topText.isEmpty }
+            print("✅ [CopyParser] JSON 解析: \(jsonResult.count) 张 (含内容\(filled.count)张)")
+            for c in jsonResult { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30))") }
             return CopywritingParseResult(cards: jsonResult, mode: .json, rawText: rawText, error: nil)
         }
 
-        // 2. 尝试文本解析
-        if let textResult = tryParseText(rawText, expectedCount: expectedCount) {
-            print("✅ [CopyParser] 文本解析成功: \(textResult.count) 张")
+        // 2. 按行文本解析
+        if let textResult = parseTextLines(rawText) {
+            let filled = textResult.filter { !$0.topText.isEmpty && !$0.bottomText.isEmpty }
+            print("✅ [CopyParser] 文本解析: \(textResult.count) 张 (完整\(filled.count)/\(textResult.count))")
+            for c in textResult { print("   card[\(c.cardIndex)] top=\(c.topText.prefix(30)) bottom=\(c.bottomText.prefix(30)) purpose=\(c.purpose.prefix(20))") }
             return CopywritingParseResult(cards: textResult, mode: .text, rawText: rawText, error: nil)
         }
 
-        // 3. 都失败
-        print("❌ [CopyParser] 所有解析方式都失败")
+        print("❌ [CopyParser] 全部解析失败")
         return CopywritingParseResult(cards: [], mode: .failed, rawText: rawText, error: "无法从返回内容中提取文案结构")
     }
 
-    // MARK: - JSON 解析
+    // MARK: - JSON
 
-    /// 尝试 JSON 解析，支持 "topText"/"bottomText" 和 "topFrame"/"bottomFrame" 两种字段名
-    private static func tryParseJSON(_ text: String, expectedCount: Int) -> [CopywritingCard]? {
+    private static func tryParseJSON(_ text: String) -> [CopywritingCard]? {
         let data: Data
         if let d = text.data(using: .utf8) { data = d }
-        else if let ex = extractJSONBlock(text) { data = ex }
+        else if let ex = extractBlock(text, "```json") { data = ex }
         else { return nil }
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            // 也可能是单层对象 {"cards": [...]}
-            if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let cards = dict["cards"] as? [[String: Any]] {
-                return parseJSONArray(cards)
-            }
-            return nil
-        }
-        return parseJSONArray(json)
-    }
+        let items: [[String: Any]]
+        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            items = arr
+        } else if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let arr = dict["cards"] as? [[String: Any]] {
+            items = arr
+        } else { return nil }
 
-    private static func parseJSONArray(_ items: [[String: Any]]) -> [CopywritingCard]? {
         var cards: [CopywritingCard] = []
         for item in items {
             guard let idx = item["cardIndex"] as? Int else { continue }
-            // 兼容两种字段名
-            let top = (item["topText"] as? String) ?? (item["topFrame"] as? String) ?? ""
-            let bottom = (item["bottomText"] as? String) ?? (item["bottomFrame"] as? String) ?? ""
+            let top = (item["topText"] as? String) ?? (item["topFrame"] as? String) ?? (item["上半格文案"] as? String) ?? ""
+            let bottom = (item["bottomText"] as? String) ?? (item["bottomFrame"] as? String) ?? (item["下半格文案"] as? String) ?? ""
             let purpose = (item["purpose"] as? String) ?? (item["这一张的作用"] as? String) ?? ""
             cards.append(CopywritingCard(cardIndex: idx, topText: top, bottomText: bottom, purpose: purpose))
         }
         return cards.isEmpty ? nil : cards
     }
 
-    // MARK: - 文本解析
+    // MARK: - 行级文本解析
 
-    /// 尝试文本格式解析：
-    ///   第X张
-    ///   - 上半格文案：
-    ///   - 下半格文案：
-    ///   - 这一张的作用：
-    private static func tryParseText(_ text: String, expectedCount: Int) -> [CopywritingCard]? {
+    private static func parseTextLines(_ text: String) -> [CopywritingCard]? {
         var cards: [CopywritingCard] = []
         let lines = text.components(separatedBy: .newlines)
 
-        var currentIdx = -1
-        var currentTop = ""
-        var currentBottom = ""
-        var currentPurpose = ""
+        var ci = -1, top = "", bottom = "", purpose = ""
 
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for rawLine in lines {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
 
-            // 匹配 "第X张" 或 "第X张图"
-            if trimmed.hasPrefix("第"), trimmed.contains("张") {
-                // 保存上一张
-                if currentIdx >= 0 {
-                    cards.append(CopywritingCard(cardIndex: currentIdx, topText: currentTop, bottomText: currentBottom, purpose: currentPurpose))
-                }
-                // 提取数字
-                let numStr = trimmed
-                    .replacingOccurrences(of: "第", with: "")
-                    .replacingOccurrences(of: "张", with: "")
-                    .replacingOccurrences(of: "图", with: "")
-                    .trimmingCharacters(in: CharacterSet(charactersIn: " :-—"))
-                currentIdx = Int(numStr) ?? (currentIdx + 1)
-                currentTop = ""; currentBottom = ""; currentPurpose = ""
+            // 首行类型：卡序号
+            let isCardHeader = line.hasPrefix("第") && line.contains("张")
+            let isCardHeader2 = line.hasPrefix("card") || line.hasPrefix("Card") || line.hasPrefix("CARD")
+
+            if isCardHeader || isCardHeader2 {
+                flushCard(&cards, ci, top, bottom, purpose)
+                ci = extractNumber(line) ?? (ci + 1)
+                top = ""; bottom = ""; purpose = ""
                 continue
             }
 
-            if trimmed.hasPrefix("- 上半格文案") || trimmed.hasPrefix("上半格文案") || trimmed.hasPrefix("- 上半格") {
-                currentTop = extractValue(trimmed)
-            } else if trimmed.hasPrefix("- 下半格文案") || trimmed.hasPrefix("下半格文案") || trimmed.hasPrefix("- 下半格") {
-                currentBottom = extractValue(trimmed)
-            } else if trimmed.hasPrefix("- 这一张的作用") || trimmed.hasPrefix("这一张的作用") || trimmed.hasPrefix("这一张的作用") {
-                currentPurpose = extractValue(trimmed)
-            } else if trimmed.contains("上半格"), !trimmed.contains("下半格") {
-                if currentTop.isEmpty { currentTop = trimmed }
-            } else if trimmed.contains("下半格") {
-                if currentBottom.isEmpty { currentBottom = trimmed }
+            // 上半格
+            if let val = extractAfterColon(line, keywords: ["- 上半格文案", "上半格文案", "- 上半格", "上半格", "topText", "topFrame", "Top:"]) {
+                top = val
+                continue
+            }
+            // 下半格
+            if let val = extractAfterColon(line, keywords: ["- 下半格文案", "下半格文案", "- 下半格", "下半格", "bottomText", "bottomFrame", "Bottom:"]) {
+                bottom = val
+                continue
+            }
+            // 作用
+            if let val = extractAfterColon(line, keywords: ["- 这一张的作用", "这一张的作用", "- 作用", "作用", "purpose", "Purpose:"]) {
+                purpose = val
+                continue
+            }
+
+            // 宽泛匹配——含"上半格"但不含"下半格"
+            if line.contains("上半格") && !line.contains("下半格") {
+                if top.isEmpty { top = extractFallback(line) }
+                continue
+            }
+            if line.contains("下半格") {
+                if bottom.isEmpty { bottom = extractFallback(line) }
+                continue
+            }
+            if line.contains("作用") && purpose.isEmpty {
+                purpose = extractFallback(line)
+                continue
             }
         }
 
-        // 保存最后一张
-        if currentIdx >= 0 {
-            cards.append(CopywritingCard(cardIndex: currentIdx, topText: currentTop, bottomText: currentBottom, purpose: currentPurpose))
-        }
+        flushCard(&cards, ci, top, bottom, purpose)
 
-        // 也尝试解析简单的 JSON-formatted 行
+        // 如果按卡片头没分出，尝试每行独立 JSON
         if cards.isEmpty {
             for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if let data = trimmed.data(using: .utf8),
-                   let item = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if let d = t.data(using: .utf8),
+                   let item = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
                    let idx = item["cardIndex"] as? Int {
-                    let top = (item["topText"] as? String) ?? (item["topFrame"] as? String) ?? ""
-                    let bottom = (item["bottomText"] as? String) ?? (item["bottomFrame"] as? String) ?? ""
-                    cards.append(CopywritingCard(cardIndex: idx, topText: top, bottomText: bottom))
+                    let t2 = (item["topText"] as? String) ?? (item["topFrame"] as? String) ?? ""
+                    let b2 = (item["bottomText"] as? String) ?? (item["bottomFrame"] as? String) ?? ""
+                    cards.append(CopywritingCard(cardIndex: idx, topText: t2, bottomText: b2))
                 }
             }
         }
@@ -154,24 +136,59 @@ enum CopywritingParser {
         return cards.isEmpty ? nil : cards
     }
 
-    // MARK: - 工具
+    // MARK: - 工具函数
 
-    private static func extractValue(_ line: String) -> String {
-        // 找冒号或：后面的内容
-        if let range = line.range(of: "：") {
-            return String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-        }
-        if let range = line.range(of: ":") {
-            return String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-        }
-        return ""
+    private static func flushCard(_ cards: inout [CopywritingCard], _ ci: Int, _ top: String, _ bottom: String, _ purpose: String) {
+        guard ci >= 0 else { return }
+        cards.append(CopywritingCard(cardIndex: ci, topText: top, bottomText: bottom, purpose: purpose))
     }
 
-    private static func extractJSONBlock(_ text: String) -> Data? {
-        guard let r = text.range(of: "```json"),
+    /// 从行中提取冒号后的内容，支持中英文冒号
+    private static func extractAfterColon(_ line: String, keywords: [String]) -> String? {
+        var found = false
+        var afterKeyword = line
+        for kw in keywords {
+            if let range = line.range(of: kw) {
+                afterKeyword = String(line[range.upperBound...])
+                found = true
+                break
+            }
+        }
+        guard found else { return nil }
+
+        // 找冒号
+        let colonChars: [Character] = ["：", ":"]
+        for c in colonChars {
+            if let idx = afterKeyword.firstIndex(of: c) {
+                let val = String(afterKeyword[afterKeyword.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
+                return val.isEmpty ? nil : val
+            }
+        }
+
+        // 没冒号，直接返回关键词后的内容
+        let val = afterKeyword.trimmingCharacters(in: .whitespaces)
+        return val.isEmpty ? nil : val
+    }
+
+    /// 宽泛提取：找冒号后的内容
+    private static func extractFallback(_ line: String) -> String {
+        for c in ["：", ":"] {
+            if let idx = line.firstIndex(of: c) {
+                let val = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty { return val }
+            }
+        }
+        return line
+    }
+
+    private static func extractNumber(_ s: String) -> Int? {
+        let digits = s.compactMap { $0.isNumber ? String($0) : nil }.joined()
+        return Int(digits)
+    }
+
+    private static func extractBlock(_ text: String, _ marker: String) -> Data? {
+        guard let r = text.range(of: marker),
               let e = text[r.upperBound...].range(of: "```") else { return nil }
-        return String(text[r.upperBound..<e.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .data(using: .utf8)
+        return String(text[r.upperBound..<e.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8)
     }
 }

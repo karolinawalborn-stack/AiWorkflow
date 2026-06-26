@@ -17,12 +17,10 @@ struct CopyEditingView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 20) {
-                    // 进度
                     ProgressHeader(title: vm.project?.name ?? "文案", step: 2, total: 4, tint: .purple)
                     HStack { Image(systemName: "quote.opening").foregroundColor(.blue); Text(userTopic).font(.subheadline); Spacer() }
                         .padding().background(Color.blue.opacity(0.08)).cornerRadius(10)
 
-                    // 操作按钮
                     VStack(spacing: 8) {
                         Button { print("🔵 [UI] 生成文案"); vm.generateCopy() } label: {
                             HStack {
@@ -37,37 +35,28 @@ struct CopyEditingView: View {
                         }.buttonStyle(.bordered).tint(.orange)
                     }
 
-                    // 解析模式
                     if !vm.parseMode.isEmpty {
-                        Text("解析模式: \(vm.parseMode)").font(.caption).foregroundColor(.secondary)
+                        Text("解析模式: \(vm.parseMode)  |  卡片: \(vm.cards.count) 张")
+                            .font(.caption).foregroundColor(.secondary)
                     }
 
-                    // 内容
+                    // ── 卡片内容 ──
                     if vm.isLoading {
                         VStack(spacing: 12) { ProgressView(); Text(vm.progressText).foregroundColor(.secondary) }
                             .frame(maxWidth: .infinity).padding(.vertical, 40)
                     } else if !vm.cards.isEmpty {
                         Text(vm.progressText).font(.caption).foregroundColor(.secondary)
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("文案（\(vm.cards.count)张）").font(.subheadline.bold())
-                            ForEach(Array(vm.cards.enumerated()), id: \.element.id) { idx, card in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("第\(card.cardIndex + 1)张").font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
-                                    if !card.purpose.isEmpty {
-                                        Text("作用：\(card.purpose)").font(.caption2).foregroundColor(.secondary)
+                            Text("文案列表（\(vm.cards.count)张）").font(.subheadline.bold())
+                            ForEach(vm.cards) { card in
+                                CopyCardRow(
+                                    card: card,
+                                    onUpdate: { top, bottom, purpose in
+                                        if let idx = vm.cards.firstIndex(where: { $0.id == card.id }) {
+                                            vm.updateCard(index: idx, topText: top, bottomText: bottom, purpose: purpose)
+                                        }
                                     }
-                                    VStack(spacing: 0) {
-                                        TextField("上半格", text: Binding(
-                                            get: { card.topText },
-                                            set: { vm.updateCard(index: idx, topText: $0, bottomText: card.bottomText, purpose: card.purpose) }
-                                        ), axis: .vertical).textFieldStyle(.plain).padding().lineLimit(2...3)
-                                        Divider().padding(.leading)
-                                        TextField("下半格", text: Binding(
-                                            get: { card.bottomText },
-                                            set: { vm.updateCard(index: idx, topText: card.topText, bottomText: $0, purpose: card.purpose) }
-                                        ), axis: .vertical).textFieldStyle(.plain).padding().lineLimit(2...3)
-                                    }.background(Color(.systemGray6)).cornerRadius(10)
-                                }
+                                )
                             }
                         }
                     } else {
@@ -77,7 +66,7 @@ struct CopyEditingView: View {
                         }.frame(maxWidth: .infinity).padding(.vertical, 40)
                     }
 
-                    // 原始响应调试区
+                    // ── 原始响应调试区 ──
                     if !vm.rawResponse.isEmpty {
                         Button { withAnimation { showRaw.toggle() } } label: {
                             HStack { Image(systemName: showRaw ? "chevron.down" : "chevron.right"); Text("原始响应 (\(vm.rawResponse.count)字符)").font(.caption) }
@@ -91,18 +80,15 @@ struct CopyEditingView: View {
                 }.padding()
             }
 
-            // 底部工具栏
             VStack(spacing: 0) {
                 Divider()
                 HStack {
-                    if !vm.cards.isEmpty {
-                        Text("\(vm.cards.filter { !$0.isEmpty }.count)/\(vm.cards.count) 张已填写")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
+                    let nonEmpty = vm.cards.filter { !$0.topText.isEmpty || !$0.bottomText.isEmpty }.count
+                    Text("\(nonEmpty)/\(vm.cards.count) 张已填写").font(.caption).foregroundColor(.secondary)
                     Spacer()
                     Button("下一步：生图提示词") { goNext = true }
                         .font(.subheadline).buttonStyle(.borderedProminent)
-                        .disabled(vm.cards.isEmpty || vm.cards.allSatisfy { $0.isEmpty })
+                        .disabled(nonEmpty == 0)
                 }.padding()
             }.background(Color(.systemBackground))
         }
@@ -111,18 +97,60 @@ struct CopyEditingView: View {
             if let p = vm.project { PromptGenView(projectID: p.id) }
         }
         .onAppear {
-            print("🔵 [UI] CopyEditingView.onAppear projectID=\(projectID)")
+            print("🔵 [UI] CopyEditingView projectID=\(projectID)")
             if let p = store.project(id: projectID) {
                 vm.setup(store: store, textService: textService, project: p, userTopic: userTopic, extraRequirements: extraRequirements)
-            } else {
-                alertMsg = "项目数据未找到"; showAlert = true
+            } else { alertMsg = "项目不存在"; showAlert = true }
+        }
+        .onChange(of: vm.errorMessage) { msg in if let m = msg, !m.isEmpty { alertMsg = m; showAlert = true } }
+        .alert("提示", isPresented: $showAlert) { Button("确定") { vm.errorMessage = nil } } message: { Text(alertMsg) }
+    }
+}
+
+// MARK: - 单张卡片子视图
+
+struct CopyCardRow: View {
+    let card: CopywritingCard
+    let onUpdate: (String, String, String) -> Void
+
+    @State private var topText: String = ""
+    @State private var bottomText: String = ""
+    @State private var purpose: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("第\(card.cardIndex + 1)张").font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
+
+            // 调试显示
+            HStack {
+                if !topText.isEmpty { Text("上: \(topText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !bottomText.isEmpty { Text("下: \(bottomText.prefix(20))...").font(.caption2).foregroundColor(.green) }
+                if !purpose.isEmpty { Text("作用: \(purpose)").font(.caption2).foregroundColor(.secondary) }
             }
+
+            VStack(spacing: 0) {
+                TextField("上半格文案", text: $topText, axis: .vertical)
+                    .textFieldStyle(.plain).padding().lineLimit(2...3)
+                Divider().padding(.leading)
+                TextField("下半格文案", text: $bottomText, axis: .vertical)
+                    .textFieldStyle(.plain).padding().lineLimit(2...3)
+            }
+            .background(Color(.systemGray6)).cornerRadius(10)
+            .onChange(of: topText) { _ in onUpdate(topText, bottomText, purpose) }
+            .onChange(of: bottomText) { _ in onUpdate(topText, bottomText, purpose) }
+            .onChange(of: purpose) { _ in onUpdate(topText, bottomText, purpose) }
         }
-        .onChange(of: vm.errorMessage) { msg in
-            if let m = msg, !m.isEmpty { alertMsg = m; showAlert = true }
+        .onAppear {
+            topText = card.topText
+            bottomText = card.bottomText
+            purpose = card.purpose
+            print("📱 [CopyCardRow] card[\(card.cardIndex)] appear: top=「\(card.topText)」 bottom=「\(card.bottomText)」")
         }
-        .alert("提示", isPresented: $showAlert) {
-            Button("确定") { vm.errorMessage = nil }
-        } message: { Text(alertMsg) }
+        .onChange(of: card.id) { _ in
+            topText = card.topText
+            bottomText = card.bottomText
+            purpose = card.purpose
+            print("📱 [CopyCardRow] card[\(card.cardIndex)] id changed, reload: top=「\(card.topText)」")
+        }
     }
 }
