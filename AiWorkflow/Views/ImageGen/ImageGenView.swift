@@ -234,6 +234,7 @@ struct ImageCardDebugView: View {
         case .taskAccepted: return "⏳ 任务已接收"
         case .polling:     return "🔄 轮询中"
         case .saveFailed:  return "⚠️ 保存失败"
+        case .timeout:     return "⏰ 查询超时"
         case .cancelled:   return "🚫 已取消"
         }
     }
