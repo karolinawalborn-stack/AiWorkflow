@@ -71,9 +71,9 @@ struct DetailView: View {
                     header: { Text("文案").foregroundColor(.secondary) }
                 }
 
-                let prompts = project.sortedPrompts.filter { !$0.prompt.isEmpty }
+                let prompts = project.sortedPrompts.filter { !$0.promptText.isEmpty }
                 if !prompts.isEmpty {
-                    Section { ForEach(prompts) { p in VStack(alignment: .leading) { Text("图\(p.cardIndex+1)").font(.caption).foregroundColor(.secondary); Text(p.prompt).font(.caption) } } }
+                    Section { ForEach(prompts) { p in VStack(alignment: .leading) { Text("图\(p.cardIndex+1)").font(.caption).foregroundColor(.secondary); Text(p.promptText).font(.caption) } } }
                     header: { Text("提示词").foregroundColor(.secondary) }
                 }
 

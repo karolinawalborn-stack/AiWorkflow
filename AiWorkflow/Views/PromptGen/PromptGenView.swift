@@ -5,6 +5,7 @@ struct PromptGenView: View {
     @Environment(\.textService) private var textService
     @StateObject private var vm = PromptViewModel()
     @State private var goNext = false
+    @State private var showRawGlobal = false
     let projectID: UUID
 
     var body: some View {
@@ -14,59 +15,64 @@ struct PromptGenView: View {
                     if let p = vm.project { ProgressHeader(title: p.name, step: 3, total: 4, tint: .orange) }
 
                     HStack(spacing: 12) {
-                        Button { vm.generatePrompts() } label: { HStack { Image(systemName: "sparkles"); Text(vm.isLoading ? "生成中..." : "生成提示词") }.frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
-                        if !vm.prompts.isEmpty { Button("批量复制") { vm.copyAllPrompts() }.buttonStyle(.bordered) }
+                        Button { vm.generatePrompts() } label: {
+                            HStack { Image(systemName: "sparkles"); Text(vm.isLoading ? "生成中..." : "生成提示词") }.frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
+                        if vm.nonEmptyPromptCount > 0 { Button("批量复制") { vm.copyAllPrompts() }.buttonStyle(.bordered) }
                     }
+
+                    // ── 顶部统计 ──
+                    let total = vm.prompts.count
+                    let done = vm.nonEmptyPromptCount
+                    HStack {
+                        if done == total && total > 0 {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("全部完成（\(done)/\(total)）").font(.caption).foregroundColor(.green)
+                        } else if done > 0 {
+                            Image(systemName: "ellipsis.circle").foregroundColor(.orange)
+                            Text("\(done)/\(total) 条有内容").font(.caption).foregroundColor(.orange)
+                        } else if vm.isLoading {
+                            ProgressView().scaleEffect(0.7)
+                            Text("生成中...").font(.caption).foregroundColor(.secondary)
+                        } else {
+                            Image(systemName: "doc.text.magnifyingglass").foregroundColor(.secondary)
+                            Text("点击生成提示词").font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemGray6)).cornerRadius(8)
 
                     if vm.isLoading {
-                        VStack(spacing: 12) { ProgressView(); Text("AI生成提示词中...").foregroundColor(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 40)
-                    } else if vm.prompts.isEmpty {
-                        VStack(spacing: 12) { Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundColor(.secondary); Text("点击生成提示词").foregroundColor(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 40)
-                    } else {
+                        VStack(spacing: 12) { ProgressView(); Text("正在逐张生成提示词...").foregroundColor(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 40)
+                    } else if !vm.prompts.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("提示词（\(vm.prompts.count)条）").font(.subheadline.bold())
-
-                            // 调试：显示非空数量
-                            let nonEmpty = vm.prompts.filter { !$0.prompt.isEmpty }.count
-                            if nonEmpty < vm.prompts.count {
-                                Text("⚠️ 仅 \(nonEmpty)/\(vm.prompts.count) 条有内容").font(.caption).foregroundColor(.orange)
-                            }
-
+                            Text("提示词列表").font(.subheadline.bold())
                             ForEach(vm.prompts) { pr in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text("图\(pr.cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
-                                            .padding(.horizontal, 8).padding(.vertical, 4).background(Color.orange).cornerRadius(6)
-                                        Spacer()
-                                        if !pr.prompt.isEmpty {
-                                            Button { vm.copyPrompt(at: vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0) } label: { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain)
-                                        }
-                                    }
-                                    if !pr.imageDescription.isEmpty { Text(pr.imageDescription).font(.caption).foregroundColor(.secondary) }
-                                    Text(pr.prompt.isEmpty ? "（空）" : pr.prompt)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundColor(pr.prompt.isEmpty ? .secondary : .primary)
-                                        .lineLimit(5)
-                                }.padding().background(Color(.systemGray6)).cornerRadius(10)
+                                PromptCardRow(
+                                    card: pr,
+                                    isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
+                                    onCopy: { vm.copyPrompt(at: vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0) },
+                                    onRegenerate: { vm.regenerateSingle(at: pr.cardIndex) }
+                                )
                             }
                         }
-                    }
-
-                    // 原始响应调试区
-                    if !vm.rawResponse.isEmpty {
-                        DisclosureGroup("原始响应 (\(vm.rawResponse.count)字符)") {
-                            Text(vm.rawResponse).font(.system(size: 10, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundColor(.secondary)
+                            Text("点击「生成提示词」开始").foregroundColor(.secondary)
+                        }.frame(maxWidth: .infinity).padding(.vertical, 40)
                     }
                 }.padding()
             }
+
             VStack(spacing: 0) {
                 Divider()
                 HStack {
                     Button("保存为模板") { vm.saveAsTemplate() }.buttonStyle(.bordered)
                     Spacer()
-                    Button("下一步：出图") { goNext = true }.buttonStyle(.borderedProminent).disabled(vm.prompts.isEmpty)
+                    Button("下一步：出图") { goNext = true }.buttonStyle(.borderedProminent)
+                        .disabled(vm.nonEmptyPromptCount == 0)
                 }.padding()
             }.background(Color(.systemBackground))
         }
@@ -79,5 +85,100 @@ struct PromptGenView: View {
             }
         }
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
+    }
+}
+
+// MARK: - 单张提示词卡片行
+
+struct PromptCardRow: View {
+    let card: PromptCard
+    let isGenerating: Bool
+    let onCopy: () -> Void
+    let onRegenerate: () -> Void
+
+    @State private var showRaw = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // ── 头部：序号 + 状态 ──
+            HStack {
+                Text("图\(card.cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(statusColor).cornerRadius(6)
+
+                Spacer()
+
+                // 状态文本
+                Text(statusText).font(.caption2).foregroundColor(statusColor)
+
+                if !card.promptText.isEmpty {
+                    Button(action: onCopy) { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain)
+                }
+                if card.status == .success || card.status == .failed {
+                    Button(action: onRegenerate) { Image(systemName: "arrow.clockwise").font(.caption) }.buttonStyle(.plain)
+                }
+            }
+
+            // ── 内容区 ──
+            if isGenerating {
+                HStack { ProgressView().scaleEffect(0.8); Text("生成中...").font(.caption).foregroundColor(.secondary) }.padding(.vertical, 8)
+            } else if card.status == .success && !card.promptText.isEmpty {
+                Text(card.promptText)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .lineLimit(10)
+            } else if card.status == .failed {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("（生成失败）").font(.caption).foregroundColor(.red)
+                    if let err = card.errorMessage { Text(err).font(.caption2).foregroundColor(.secondary) }
+                }
+            } else if card.status == .pending {
+                Text("（等待生成）").font(.caption).foregroundColor(.secondary)
+            }
+
+            // ── 原始响应调试区（每张卡片自带） ──
+            if !card.rawResponse.isEmpty && card.rawResponse != card.promptText {
+                Button { withAnimation { showRaw.toggle() } } label: {
+                    HStack { Image(systemName: showRaw ? "chevron.down" : "chevron.right"); Text("原始响应 (\(card.rawResponse.count)字符)").font(.caption2) }.foregroundColor(.secondary)
+                }
+                if showRaw {
+                    Text(card.rawResponse).font(.system(size: 9, design: .monospaced)).foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                        .background(Color(.systemGray6)).cornerRadius(6)
+                }
+            }
+        }
+        .padding()
+        .background(cardBackground)
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(borderColor, lineWidth: isGenerating ? 1.5 : 0.5))
+    }
+
+    // MARK: - 状态衍生属性
+
+    private var statusText: String {
+        switch card.status {
+        case .pending:   return "等待生成"
+        case .generating: return "生成中..."
+        case .success:   return "✅ 已生成"
+        case .failed:    return "❌ 失败"
+        }
+    }
+
+    private var statusColor: Color {
+        switch card.status {
+        case .pending:    return .secondary
+        case .generating: return .orange
+        case .success:    return .green
+        case .failed:     return .red
+        }
+    }
+
+    private var cardBackground: Color {
+        card.status == .success ? Color.green.opacity(0.04) : Color(.systemGray6)
+    }
+
+    private var borderColor: Color {
+        isGenerating ? Color.orange.opacity(0.5) : Color.clear
     }
 }

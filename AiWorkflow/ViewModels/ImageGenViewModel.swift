@@ -27,8 +27,8 @@ final class ImageGenViewModel: ObservableObject {
         generatingIndex = index; errorMessage = nil
 
         let promptText: String
-        if index < (project?.promptCards.count ?? 0), let p = project?.sortedPrompts, index < p.count, !p[index].prompt.isEmpty {
-            promptText = p[index].prompt
+        if index < (project?.promptCards.count ?? 0), let p = project?.sortedPrompts, index < p.count, !p[index].promptText.isEmpty {
+            promptText = p[index].promptText
         } else {
             promptText = "A cute white round-headed cartoon character, dark blue-black background, dual-panel comic layout with captions, oppressive emotional atmosphere, 3:4 ratio"
         }

@@ -94,19 +94,36 @@ struct CopywritingCard: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-// MARK: - 生图提示词
+// MARK: - 生图提示词状态
+
+enum PromptStatus: String, Codable, Sendable {
+    case pending       // 未生成
+    case generating    // 生成中
+    case success       // 成功写入
+    case failed        // API 返回但写入失败
+}
+
+// MARK: - 生图提示词（单张卡片一条）
 
 struct PromptCard: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var cardIndex: Int
-    var prompt: String
-    var imageDescription: String
+    /// 最终生图提示词（API 返回的原始文本直接写入，不做复杂解析）
+    var promptText: String
+    /// API 原始响应
+    var rawResponse: String
+    /// 当前状态
+    var status: PromptStatus
+    /// 错误信息（仅 failed 时有值）
+    var errorMessage: String?
 
-    init(cardIndex: Int, prompt: String = "", imageDescription: String = "") {
+    init(cardIndex: Int, promptText: String = "", rawResponse: String = "", status: PromptStatus = .pending, errorMessage: String? = nil) {
         self.id = UUID()
         self.cardIndex = cardIndex
-        self.prompt = prompt
-        self.imageDescription = imageDescription
+        self.promptText = promptText
+        self.rawResponse = rawResponse
+        self.status = status
+        self.errorMessage = errorMessage
     }
 }
 
