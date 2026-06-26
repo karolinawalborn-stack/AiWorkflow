@@ -39,8 +39,8 @@ final class ImageGenViewModel: ObservableObject {
             guard let result = results.first else { throw NetworkError.noData }
 
             var item = images[index]
-            item.imageData = result.data
-            item.usedPrompt = result.revisedPrompt ?? promptText
+            item.imageData = result.imageData
+            item.usedPrompt = (result.revisedPrompt ?? promptText)
             item.isGenerated = true
             images[index] = item
 
