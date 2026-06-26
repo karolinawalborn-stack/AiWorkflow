@@ -43,7 +43,7 @@ struct AIProviderConfig: Sendable {
         let d = UserDefaults.standard
         return AIProviderConfig(
             baseURL: d.string(forKey: "api_base_url") ?? `default`.baseURL,
-            token: d.string(forKey: "api_key") ?? "",
+            token: d.string(forKey: "api_key") ?? `default`.token,
             textModelName: d.string(forKey: "text_model") ?? `default`.textModelName,
             imageModelName: d.string(forKey: "image_model") ?? `default`.imageModelName
         )
