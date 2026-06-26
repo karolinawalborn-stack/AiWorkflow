@@ -172,7 +172,8 @@ enum CopywritingParser {
 
     /// 宽泛提取：找冒号后的内容
     private static func extractFallback(_ line: String) -> String {
-        for c in ["：", ":"] {
+        let colonChars: [Character] = ["：", ":"]
+        for c in colonChars {
             if let idx = line.firstIndex(of: c) {
                 let val = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
                 if !val.isEmpty { return val }
