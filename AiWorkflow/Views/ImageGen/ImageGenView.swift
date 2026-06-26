@@ -230,6 +230,9 @@ struct ImageCardDebugView: View {
         case .success:     return "✅ 成功"
         case .failed:      return "❌ 请求失败"
         case .parseFailed: return "⚠️ 格式未适配"
+        case .binaryImageReceived: return "📷 已收到图片"
+        case .taskAccepted: return "⏳ 任务已接收"
+        case .polling:     return "🔄 轮询中"
         case .saveFailed:  return "⚠️ 保存失败"
         case .cancelled:   return "🚫 已取消"
         }
@@ -242,6 +245,9 @@ struct ImageCardDebugView: View {
         case .success:     return .green
         case .failed:      return .red
         case .parseFailed: return .orange
+        case .binaryImageReceived: return .blue
+        case .taskAccepted: return .purple
+        case .polling:     return .orange
         case .saveFailed:  return .orange
         case .cancelled:   return .gray
         }
