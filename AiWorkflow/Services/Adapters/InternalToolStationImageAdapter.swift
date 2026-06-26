@@ -28,6 +28,19 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
         size: String,
         n: Int
     ) async throws -> [ImageGenerationResult] {
+        print("""
+        🌐 [ImageAdapter] generateImage() 被调用!
+           prompt.prefix(200)=\(prompt.prefix(200))
+           size=\(size) n=\(n)
+           model=\(config.imageModelName)
+           baseURL=\(config.url(for: "/v1/images/generations").absoluteString)
+        """)
+
+        guard !config.imageModelName.isEmpty else {
+            print("🌐 ❌ imageModelName 为空!")
+            throw NetworkError.invalidResponse("imageModelName 为空")
+        }
+
         // ── 1. 先请求 base64 格式（最通用） ──
         var results = try await requestImages(
             prompt: prompt,
@@ -38,6 +51,7 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
 
         // ── 2. 如果 base64 全部失败，回退到 URL 格式 ──
         if results.allSatisfy({ $0.imageData == nil }) {
+            print("🌐 [ImageAdapter] base64 全空，回退到 URL 格式")
             results = try await requestImages(
                 prompt: prompt,
                 size: size,
@@ -46,6 +60,7 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
             )
         }
 
+        print("🌐 [ImageAdapter] 最终结果: \(results.count) 条, 有 data=\(results.filter { $0.imageData != nil }.count)")
         return results
     }
 
@@ -66,15 +81,30 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
 
         let bodyData = try JSONEncoder().encode(body)
 
+        let url = config.url(for: "/v1/images/generations")
         let request = APIRequest(
             method: .post,
-            url: config.url(for: "/v1/images/generations"),
+            url: url,
             headers: config.authHeaders,
             body: bodyData,
             timeout: config.timeout
         )
 
+        print("""
+        🌐 [ImageAdapter] requestImages(\(responseFormat)):
+           method=\(request.method.rawValue) url=\(request.url.absoluteString)
+           model=\(config.imageModelName)
+           body 大小=\(bodyData.count) bytes
+           headers 包含 Authorization=\(request.headers["Authorization"] != nil)
+           timeout=\(config.timeout)s
+        """)
+
         let response: InternalToolStationImageResponse = try await httpClient.send(request)
+
+        print("🌐 [ImageAdapter] 请求成功: data.count=\(response.data.count)")
+        for (i, item) in response.data.enumerated() {
+            print("   result[\(i)]: url=\(item.url ?? "nil") b64=\(item.b64Json != nil ? "\(item.b64Json!.prefix(30))..." : "nil")")
+        }
 
         // 如果是 URL 格式，下载每张图片的二进制数据
         if responseFormat == "url" {

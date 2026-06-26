@@ -19,6 +19,14 @@ struct ImageGenView: View {
                         if vm.allSuccess { Button("完成") { vm.completeProject() }.buttonStyle(.bordered) }
                     }
 
+                    // ── 测试按钮（固定 prompt，不依赖 promptCards） ──
+                    Button {
+                        print("\n🧪 [UI] 测试第1张出图请求 — 使用固定 prompt")
+                        vm.generateTestImage(at: 0)
+                    } label: {
+                        HStack { Image(systemName: "ladybug"); Text("测试第1张出图（固定 prompt）").font(.caption) }.frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered).tint(.orange).disabled(vm.isLoading)
+
                     // ── 顶部统计 ──
                     let total = vm.imageCards.count
                     let done = vm.successCount
