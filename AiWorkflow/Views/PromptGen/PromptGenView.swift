@@ -34,12 +34,13 @@ struct PromptGenView: View {
                     // 卡片列表
                     if !vm.prompts.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
-                            ForEach(Array(vm.prompts.enumerated()), id: \.element.id) { idx, pr in
+                            ForEach(vm.prompts) { pr in
+                                let idx = vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0
                                 PromptSimpleRow(
                                     text: pr.promptText,
                                     index: pr.cardIndex,
                                     isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
-                                    onEdit: { vm.updatePrompt(at: idx, prompt: $0, description: "") },
+                                    onEdit: { self.vm.updatePrompt(at: idx, prompt: $0, description: "") },
                                     onCopy: { vm.copyPrompt(at: idx) }
                                 )
                             }
