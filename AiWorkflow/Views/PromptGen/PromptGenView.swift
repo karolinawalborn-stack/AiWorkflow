@@ -46,9 +46,8 @@ struct PromptGenView: View {
         }
     }
 
-    private var promptCardList: some View {
-        Group {
-            if vm.prompts.isEmpty {
+    @ViewBuilder private var promptCardList: some View {
+        if vm.prompts.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundColor(.secondary)
                     Text("点击「根据文案生成」或「批量导入」").foregroundColor(.secondary)
@@ -66,7 +65,6 @@ struct PromptGenView: View {
                     }
                 }
             }
-        }
     }
 
     private var promptBottomBar: some View {
