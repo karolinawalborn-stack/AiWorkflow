@@ -14,78 +14,76 @@ struct PromptGenView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     if let p = vm.project { ProgressHeader(title: p.name, step: 3, total: 4, tint: .orange) }
-
-                    // 工具按钮
-                    VStack(spacing: 10) {
-                        HStack(spacing: 12) {
-                            Button { vm.generatePrompts() } label: {
-                                HStack { Image(systemName: "sparkles"); Text(vm.isLoading ? "生成中..." : "根据文案生成").font(.subheadline) }.frame(maxWidth: .infinity)
-                            }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
-                            if vm.nonEmptyPromptCount > 0 { Button("复制全部") { vm.copyAllPrompts() }.buttonStyle(.bordered).controlSize(.small) }
-                        }
-                        HStack(spacing: 12) {
-                            Button { showBatchImport = true } label: {
-                                HStack { Image(systemName: "doc.badge.plus"); Text("批量导入提示词").font(.caption) }.frame(maxWidth: .infinity)
-                            }.buttonStyle(.bordered).tint(.blue)
-                            Text("\(vm.nonEmptyPromptCount)/\(vm.prompts.count) 条").font(.caption).foregroundColor(.secondary)
-                        }
-                    }
-
-                    // 卡片列表
-                    if !vm.prompts.isEmpty {
-                        VStack(alignment: .leading, spacing: 16) {
-                            ForEach(vm.prompts) { pr in
-                                let idx = vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0
-                                PromptSimpleRow(
-                                    text: pr.promptText,
-                                    index: pr.cardIndex,
-                                    isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
-                                    onEdit: { self.vm.updatePrompt(at: idx, prompt: $0, description: "") },
-                                    onCopy: { vm.copyPrompt(at: idx) }
-                                )
-                            }
-                        }
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundColor(.secondary)
-                            Text("点击「根据文案生成」或「批量导入」").foregroundColor(.secondary)
-                        }.frame(maxWidth: .infinity).padding(.vertical, 40)
-                    }
+                    self.toolbarSection
+                    self.promptsList
                 }.padding()
             }
-
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Button("下一歩：出图") { goNext = true }.buttonStyle(.borderedProminent).disabled(vm.nonEmptyPromptCount == 0)
-                    Spacer()
-                    if let m = vm.lastCopied { Text("已复制").font(.caption).foregroundColor(.green) }
-                }.padding()
-            }.background(Color(.systemBackground))
+            self.bottomBar
         }
         .navigationTitle("提示词").navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $goNext) { ImageGenView(projectID: projectID) }
-        .sheet(isPresented: $showBatchImport) {
-            NavigationStack {
-                VStack(spacing: 16) {
-                    Text("批量导入提示词").font(.headline)
-                    Text("每行一条，或空行分隔。支持\"第N条\"格式。").font(.caption).foregroundColor(.secondary)
-                    TextEditor(text: $batchText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 200).padding(8).background(Color(.systemGray6)).cornerRadius(8)
-                    HStack(spacing: 12) {
-                        Button("取消") { showBatchImport = false; batchText = "" }.buttonStyle(.bordered)
-                        Button("导入并填充") {
-                            vm.batchImportPrompts(batchText)
-                            showBatchImport = false; batchText = ""
-                        }.buttonStyle(.borderedProminent).disabled(batchText.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-        }
+        .sheet(isPresented: $showBatchImport) { self.batchImportSheet }
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
     }
-}
 
-// MARK: - 可编辑提示词行
+    private var toolbarSection: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                Button { vm.generatePrompts() } label: {
+                    HStack { Image(systemName: "sparkles"); Text(vm.isLoading ? "生成中..." : "根据文案生成").font(.subheadline) }.frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
+                if vm.nonEmptyPromptCount > 0 { Button("复制全部") { vm.copyAllPrompts() }.buttonStyle(.bordered).controlSize(.small) }
+            }
+            HStack(spacing: 12) {
+                Button { showBatchImport = true } label: {
+                    HStack { Image(systemName: "doc.badge.plus"); Text("批量导入提示词").font(.caption) }.frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).tint(.blue)
+                Text("\(vm.nonEmptyPromptCount)/\(vm.prompts.count) 条").font(.caption).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var promptsList: some View {
+        Group {
+            if vm.prompts.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "doc.text.magnifyingglass").font(.system(size: 40)).foregroundColor(.secondary)
+                    Text("点击「根据文案生成」或「批量导入」").foregroundColor(.secondary)
+                }.frame(maxWidth: .infinity).padding(.vertical, 40)
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(vm.prompts) { pr in
+                        PromptSimpleRow(text: pr.promptText, index: pr.cardIndex, isGenerating: vm.currentGeneratingIndex == pr.cardIndex, onEdit: { self.vm.updatePrompt(at: pr.cardIndex, prompt: $0, description: "") }, onCopy: { self.vm.copyPrompt(at: pr.cardIndex) })
+                    }
+                }
+            }
+        }
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+                Button("下一歩：出图") { goNext = true }.buttonStyle(.borderedProminent).disabled(vm.nonEmptyPromptCount == 0)
+                Spacer()
+                if let m = vm.lastCopied { Text("已复制").font(.caption).foregroundColor(.green) }
+            }.padding()
+        }.background(Color(.systemBackground))
+    }
+
+    private var batchImportSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text("批量导入提示词").font(.headline)
+                Text("每行一条，或空行分隔。支持"第N条"格式。").font(.caption).foregroundColor(.secondary)
+                TextEditor(text: $batchText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 200).padding(8).background(Color(.systemGray6)).cornerRadius(8)
+                HStack(spacing: 12) {
+                    Button("取消") { showBatchImport = false; batchText = "" }.buttonStyle(.bordered)
+                    Button("导入并填充") { vm.batchImportPrompts(batchText); showBatchImport = false; batchText = "" }.buttonStyle(.borderedProminent).disabled(batchText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
 
 struct PromptSimpleRow: View {
     let text: String
