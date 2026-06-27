@@ -7,8 +7,6 @@ struct PromptGenView: View {
     @State private var goNext = false
     @State private var showBatchImport = false
     @State private var batchText: String = ""
-    @State private var showBatchImport = false
-    @State private var batchText: String = ""
     let projectID: UUID
 
     var body: some View {
