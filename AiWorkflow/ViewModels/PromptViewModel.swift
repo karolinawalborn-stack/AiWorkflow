@@ -212,6 +212,15 @@ final class PromptViewModel: ObservableObject {
     }
 
     /// 重新生成单张
+    func updatePrompt(at index: Int, prompt: String, description: String) {
+        guard var p = project, index < p.promptCards.count else { return }
+        p.promptCards[index].promptText = prompt
+        p.updatedAt = Date()
+        store?.upsert(p)
+        project = p
+        print("📝 [PromptVM] updatePrompt[\(index)]: prompt=\(prompt.prefix(30))")
+    }
+
     func regenerateSingle(at index: Int) {
         guard project != nil, index < (project?.promptCards.count ?? 0) else { return }
         print("🔵 [PromptVM] ===== 重新生成第\(index+1)张 =====")
