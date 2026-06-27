@@ -214,7 +214,7 @@ final class ImageGenViewModel: ObservableObject {
                     for urlStr in ["\(base)\(pp)/\(efsId)", "\(base)\(pp)?file_id=\(efsId)", "\(base)\(pp)?efsId=\(efsId)"] {
                         guard let url = URL(string: urlStr) else { continue }
                         print("\(tag) ⏳ efs URL: \(urlStr)")
-                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutLimit: 15)), d.count > 200 {
+                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutInterval: 15)), d.count > 200 {
                             print("\(tag) ✅ efs 下载成功! \(d.count) bytes")
                             await self.saveFromPolling(cardIndex, d, rawSubmit)
                             return
