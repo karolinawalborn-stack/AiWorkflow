@@ -35,15 +35,12 @@ struct PromptGenView: View {
                     if !vm.prompts.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
                             ForEach(Array(vm.prompts.enumerated()), id: \.element.id) { idx, pr in
-                                PromptCardEditRow(
-                                    promptText: Binding(
-                                        get: { vm.prompts[idx].promptText },
-                                        set: { vm.updatePrompt(at: idx, prompt: $0, description: "") }
-                                    ),
-                                    cardIndex: pr.cardIndex,
+                                PromptSimpleRow(
+                                    text: pr.promptText,
+                                    index: pr.cardIndex,
                                     isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
-                                    onCopy: { vm.copyPrompt(at: idx) },
-                                    onRegenerate: { vm.regenerateSingle(at: pr.cardIndex) }
+                                    onEdit: { vm.updatePrompt(at: idx, prompt: $0, description: "") },
+                                    onCopy: { vm.copyPrompt(at: idx) }
                                 )
                             }
                         }
@@ -89,39 +86,31 @@ struct PromptGenView: View {
 
 // MARK: - 可编辑提示词行
 
-struct PromptCardEditRow: View {
-    @Binding var promptText: String
-    let cardIndex: Int
+struct PromptSimpleRow: View {
+    let text: String
+    let index: Int
     let isGenerating: Bool
+    let onEdit: (String) -> Void
     let onCopy: () -> Void
-    let onRegenerate: () -> Void
-
     @State private var editText: String = ""
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("图\(cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4).background(promptText.isEmpty ? Color.secondary : Color.green).cornerRadius(6)
+                Text("图\(index+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white).padding(.horizontal, 8).padding(.vertical, 4).background(text.isEmpty ? Color.secondary : Color.green).cornerRadius(6)
                 Spacer()
-                if !promptText.isEmpty { Button(action: onCopy) { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain) }
+                if !text.isEmpty { Button(action: onCopy) { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain) }
             }
-
             if isGenerating {
                 HStack { ProgressView().scaleEffect(0.8); Text("生成中...").font(.caption).foregroundColor(.secondary) }.padding(.vertical, 8)
             } else {
-                TextEditor(text: $editText)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(minHeight: 60)
-                    .padding(6)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(6)
-                    .onChange(of: editText) { newVal in promptText = newVal }
+                TextEditor(text: $editText).font(.system(size: 12, design: .monospaced)).frame(minHeight: 60).padding(6).background(Color(.systemGray6)).cornerRadius(6)
+                    .onChange(of: editText) { onEdit($0) }
             }
         }
-        .padding(12).background(promptText.isEmpty ? Color(.systemGray6) : Color.green.opacity(0.04)).cornerRadius(10)
+        .padding(12).background(text.isEmpty ? Color(.systemGray6) : Color.green.opacity(0.04)).cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isGenerating ? Color.orange.opacity(0.5) : Color.clear, lineWidth: isGenerating ? 1.5 : 0.5))
-        .onAppear { editText = promptText }
-        .onChange(of: promptText) { newVal in if newVal != editText { editText = newVal } }
+        .onAppear { editText = text }
+        .onChange(of: text) { if $0 != editText { editText = $0 } }
     }
 }
