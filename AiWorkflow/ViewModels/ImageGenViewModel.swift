@@ -32,6 +32,7 @@ final class ImageGenViewModel: ObservableObject {
         var p = [c]; for x in AIProviderConfig.candidateQueryPaths { if !p.contains(x) { p.append(x) } }; return p
     }()
     private let efsPaths: [String] = AIProviderConfig.efsDownloadPaths
+    private let fileInfoPaths: [String] = ["/v1/media/files/info", "/v1/media/file", "/v1/files/info", "/api/files/info"]
 
     // MARK: - 设置
 
@@ -175,13 +176,45 @@ final class ImageGenViewModel: ObservableObject {
         }
         pollingTask = Task { [weak self] in
             guard let self = self else { return }
+            // Step 1: Try file info query to get download URL
+            for efsId in efsIds {
+                for fip in self.fileInfoPaths {
+                    let pp = fip.hasPrefix("/") ? fip : "/\(fip)"
+                    for urlStr in ["\(base)\(pp)?efsId=\(efsId)", "\(base)\(pp)?file_id=\(efsId)"] {
+                        guard let url = URL(string: urlStr) else { continue }
+                        print("\(tag) ⏳ 查询文件信息: \(urlStr)")
+                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutInterval: 10)) {
+                            if let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                                // Try to extract URL from file info response
+                                if let data = json["data"] as? [String: Any] {
+                                    for key in ["url", "downloadUrl", "download_url", "imageUrl", "image_url", "ossUrl", "cdnUrl", "fileUrl"] {
+                                        if let urlStr2 = data[key] as? String, let url2 = URL(string: urlStr2) {
+                                            print("\(tag) ✅ 从文件信息获取到URL: \(urlStr2)")
+                                            if let (d2, _) = try? await URLSession.shared.data(for: .init(url: url2, timeoutInterval: 15)), d2.count > 200 {
+                                                await self.saveFromPolling(cardIndex, d2, "efs:\(efsId)")
+                                                return
+                                            }
+                                        }
+                                    }
+                                }
+                                if let url = json["url"] as? String, let u = URL(string: url) {
+                                    if let (d2, _) = try? await URLSession.shared.data(for: .init(url: u, timeoutInterval: 15)), d2.count > 200 {
+                                        await self.saveFromPolling(cardIndex, d2, "efs:\(efsId)"); return
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Step 2: Direct download attempts
             for efsId in efsIds {
                 for ep in self.efsPaths {
                     let pp = ep.hasPrefix("/") ? ep : "/\(ep)"
                     for urlStr in ["\(base)\(pp)/\(efsId)", "\(base)\(pp)?file_id=\(efsId)", "\(base)\(pp)?efsId=\(efsId)"] {
                         guard let url = URL(string: urlStr) else { continue }
                         print("\(tag) ⏳ efs URL: \(urlStr)")
-                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutInterval: 15)), d.count > 200 {
+                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutLimit: 15)), d.count > 200 {
                             print("\(tag) ✅ efs 下载成功! \(d.count) bytes")
                             await self.saveFromPolling(cardIndex, d, rawSubmit)
                             return
@@ -189,7 +222,7 @@ final class ImageGenViewModel: ObservableObject {
                     }
                 }
             }
-            print("\(tag) ⚠️ efs 直接下载失败, 降级到轮询...")
+            print("\(tag) ⚠️ efs 下载失败, 降级到轮询...")
             if var p = self.project, cardIndex < p.imageCards.count, let tid = p.imageCards[cardIndex].taskId {
                 self.startPolling(taskID: tid, cardIndex: cardIndex)
             } else {

@@ -243,6 +243,46 @@ final class PromptViewModel: ObservableObject {
 
     // MARK: - 复制
 
+    // MARK: - 批量导入
+
+    /// 批量导入提示词，按分隔符拆分为最多6条
+    func batchImportPrompts(_ rawText: String) {
+        guard var p = project else { return }
+        // 尝试多种分隔方式
+        var parts: [String] = []
+        if rawText.contains("第") && rawText.contains("条") {
+            // 按"第N条"拆分
+            let lines = rawText.components(separatedBy: .newlines)
+            var current: [String] = []
+            for line in lines {
+                if line.hasPrefix("第") && line.contains("条") {
+                    if !current.isEmpty { parts.append(current.joined(separator: "
+").trimmingCharacters(in: .whitespaces)) }
+                    current = [line]
+                } else { current.append(line) }
+            }
+            if !current.isEmpty { parts.append(current.joined(separator: "
+").trimmingCharacters(in: .whitespaces)) }
+        } else if rawText.contains("---") || rawText.contains("___") {
+            parts = rawText.components(separatedBy: .newlines).filter { !$0.isEmpty && !$0.hasPrefix("---") && !$0.hasPrefix("___") }
+        } else {
+            // 空行分隔或逗号分隔
+            let byLine = rawText.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            if byLine.count >= 6 { parts = Array(byLine.prefix(6)) }
+            else { parts = byLine }
+        }
+        // 填充到 promptCards
+        var np = p
+        for i in 0..<min(parts.count, np.promptCards.count) {
+            np.promptCards[i].promptText = parts[i].trimmingCharacters(in: .whitespaces)
+            np.promptCards[i].status = .success
+        }
+        np.updatedAt = Date()
+        store?.upsert(np)
+        project = np
+        print("📝 [PromptVM] 批量导入: \(parts.count) 条")
+    }
+
     func copyPrompt(at index: Int) {
         guard index < prompts.count else { return }
         #if os(iOS)
