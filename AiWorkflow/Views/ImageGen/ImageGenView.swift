@@ -117,7 +117,6 @@ struct ImageGenView: View {
             }
         }.padding(12).background(Color.blue.opacity(0.03)).cornerRadius(12)
     }
-}
 
 // MARK: - 单张卡片
 
