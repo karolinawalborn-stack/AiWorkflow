@@ -101,7 +101,7 @@ struct PromptGenView: View {
                     TextEditor(text: $editText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 200).padding(8).background(Color(.systemGray6)).cornerRadius(8)
                     HStack(spacing: 12) {
                         Button("取消") { showEditSheet = false }.buttonStyle(.bordered)
-                        Button("保存") { vm.updatePrompt(at: editingCardIdx, prompt: editText, description: ""); showEditSheet = false }.buttonStyle(.borderedProminent)
+                        Button("保存") { self.vm.updatePrompt(at: self.editingCardIdx, prompt: self.editText, description: ""); self.showEditSheet = false }.buttonStyle(.borderedProminent)
                     }
                 }.padding()
             }
