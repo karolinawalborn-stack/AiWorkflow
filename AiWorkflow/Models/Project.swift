@@ -141,6 +141,7 @@ enum ImageStatus: String, Codable, Sendable {
     case saveFailed        // 解码成功但本地保存失败
     case cancelled         // 请求被取消
     case timeout           // 轮询超时
+    case downloading       // 下载中
 }
 
 
