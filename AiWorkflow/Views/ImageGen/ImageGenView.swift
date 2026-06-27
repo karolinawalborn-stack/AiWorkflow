@@ -218,7 +218,7 @@ struct ImageCardDebugView: View {
     }
 
     private var showDebugToggle: Bool {
-        card.status == .failed || card.status == .parseFailed || card.status == .saveFailed || card.status == .cancelled || card.status == .success || !card.rawResponse.isEmpty || card.errorMessage != nil
+        card.status == .failed || card.status == .parseFailed || card.status == .saveFailed || card.status == .cancelled || card.status == .success || !card.rawSubmitResponse.isEmpty || card.errorMessage != nil
     }
 
     @ViewBuilder
@@ -229,9 +229,9 @@ struct ImageCardDebugView: View {
             if hasReference { Text("参考图: 已启用").font(.system(size: 9)).foregroundColor(.blue) }
             Text("prompt前200: \(card.promptText.prefix(200))").font(.system(size: 8)).foregroundColor(.secondary)
             if let path = card.localFilePath { Text("路径: \(path)").font(.system(size: 8)).foregroundColor(.secondary) }
-            if !card.rawResponse.isEmpty {
+            if !card.rawSubmitResponse.isEmpty {
                 Text("原始响应:").font(.system(size: 8)).foregroundColor(.secondary)
-                Text(card.rawResponse).font(.system(size: 7, design: .monospaced)).foregroundColor(.secondary).lineLimit(8)
+                Text(card.rawSubmitResponse).font(.system(size: 7, design: .monospaced)).foregroundColor(.secondary).lineLimit(8)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(6).background(Color(.systemGray6)).cornerRadius(6)
     }

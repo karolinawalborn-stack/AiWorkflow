@@ -185,7 +185,7 @@ final class ImageGenViewModel: ObservableObject {
     private func setCardFailed(_ index: Int, status: ImageStatus, error: String, rawResponse: String = "") {
         guard var p = project, index < p.imageCards.count else { return }
         p.imageCards[index].status = status; p.imageCards[index].errorMessage = error
-        if !rawResponse.isEmpty { p.imageCards[index].rawResponse = rawResponse }
+        if !rawResponse.isEmpty { p.imageCards[index].rawSubmitResponse = rawResponse }
         p.updatedAt = Date(); store?.upsert(p); project = p
         print("📷[\(index)] ❌ \(status.rawValue): \(error)")
         errorMessage = error
