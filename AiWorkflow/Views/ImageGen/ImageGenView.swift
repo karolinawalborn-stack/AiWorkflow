@@ -17,56 +17,16 @@ struct ImageGenView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     if let p = vm.project { ProgressHeader(title: p.name, step: 4, total: 4, tint: .green) }
-
-                    // ── 参考图区域（多张） ──
                     referenceSection
-
-                    // ── 操作按钮 ──
-                    HStack(spacing: 12) {
-                        Button { vm.generateAllImages() } label: {
-                            HStack { Image(systemName: "photo.on.rectangle.angled"); Text(vm.isLoading ? "生成中..." : "全部生成") }.frame(maxWidth: .infinity)
-                        }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
-                        if vm.allSuccess { Button("完成") { vm.completeProject() }.buttonStyle(.bordered) }
-                    }
-
-                    HStack(spacing: 12) {
-                        Button { vm.generateTestImage(at: 0) } label: {
-                            HStack { Image(systemName: "ladybug"); Text("测试第1张").font(.caption) }.frame(maxWidth: .infinity)
-                        }.buttonStyle(.bordered).tint(.orange).disabled(vm.isLoading)
-                        Button { vm.downloadAllToAlbum() } label: {
-                                HStack { Image(systemName: "square.and.arrow.down"); Text(vm.successCount > 0 ? "下载到相册(\(vm.successCount))" : "暂无可下载图片").font(.caption) }.frame(maxWidth: .infinity)
-                            }.buttonStyle(.bordered).tint(.green).disabled(vm.successCount == 0)
-                    }
-
-                    // ── 统计 ──
-                    HStack {
-                        if vm.allSuccess { Image(systemName: "checkmark.circle.fill").foregroundColor(.green); Text("全部完成（\(vm.successCount)/\(vm.imageCards.count)）").font(.caption).foregroundColor(.green) }
-                        else { Image(systemName: "photo").foregroundColor(.secondary); Text("\(vm.successCount)/\(vm.imageCards.count) 张成功").font(.caption).foregroundColor(.secondary) }
-                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Color(.systemGray6)).cornerRadius(8)
-
-                    if let m = vm.exportMessage { Text(m).font(.caption).foregroundColor(.green) }
-                    if let err = vm.errorMessage { Text(err).font(.caption).foregroundColor(.red).lineLimit(3) }
-
-                    // ── 卡片 ──
-                    if !vm.imageCards.isEmpty {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                            ForEach(vm.imageCards) { card in ImageCardRowView(card: card, vm: vm) }
-                        }
-                    }
+                    actionButtons
+                    statsSection
+                    cardGrid
                 }.padding()
             }
-
-            // ── 底部 ──
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Text("\(vm.successCount)/\(vm.imageCards.count) 张").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Button("下载全部") { vm.downloadAllToAlbum() }.disabled(vm.successCount == 0).font(.caption).buttonStyle(.bordered).tint(.green).controlSize(.small) }
-                }.padding()
-            }.background(Color(.systemBackground))
+            bottomBar
         }
-        .navigationTitle("出图").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("出图")
+        .navigationBarTitleDisplayMode(.inline)
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, maxSelectionCount: 9, matching: .images)
         .onChange(of: photoPickerItems) { items in
             guard !items.isEmpty else { return }
@@ -84,7 +44,60 @@ struct ImageGenView: View {
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, imageService: imageService, project: p) } }
     }
 
-    // MARK: - 参考图（多张）
+    // MARK: - 子视图
+
+    private var actionButtons: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Button { vm.generateAllImages() } label: {
+                    HStack { Image(systemName: "photo.on.rectangle.angled"); Text(vm.isLoading ? "生成中..." : "全部生成") }.frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).disabled(vm.isLoading)
+                if vm.allSuccess { Button("完成") { vm.completeProject() }.buttonStyle(.bordered) }
+            }
+            HStack(spacing: 12) {
+                Button { vm.generateTestImage(at: 0) } label: {
+                    HStack { Image(systemName: "ladybug"); Text("测试第1张").font(.caption) }.frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).tint(.orange).disabled(vm.isLoading)
+                Button { vm.downloadAllToAlbum() } label: {
+                    HStack { Image(systemName: "square.and.arrow.down"); Text(vm.successCount > 0 ? "下载到相册(\(vm.successCount))" : "暂无可下载图片").font(.caption) }.frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).tint(.green).disabled(vm.successCount == 0)
+            }
+        }
+    }
+
+    private var statsSection: some View {
+        VStack(spacing: 4) {
+            HStack {
+                if vm.allSuccess { Image(systemName: "checkmark.circle.fill").foregroundColor(.green); Text("全部完成（\(vm.successCount)/\(vm.imageCards.count)）").font(.caption).foregroundColor(.green) }
+                else { Image(systemName: "photo").foregroundColor(.secondary); Text("\(vm.successCount)/\(vm.imageCards.count) 张成功").font(.caption).foregroundColor(.secondary) }
+            }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Color(.systemGray6)).cornerRadius(8)
+            if let m = vm.exportMessage { Text(m).font(.caption).foregroundColor(.green) }
+            if let err = vm.errorMessage { Text(err).font(.caption).foregroundColor(.red).lineLimit(3) }
+        }
+    }
+
+    private var cardGrid: some View {
+        Group {
+            if vm.imageCards.isEmpty {
+                EmptyView()
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                    ForEach(vm.imageCards) { card in ImageCardRowView(card: card, vm: vm) }
+                }
+            }
+        }
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+                Text("\(vm.successCount)/\(vm.imageCards.count) 张").font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button("下载全部") { vm.downloadAllToAlbum() }.disabled(vm.successCount == 0).font(.caption).buttonStyle(.bordered).tint(.green).controlSize(.small)
+            }.padding()
+        }.background(Color(.systemBackground))
+    }
 
     private var referenceSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -117,8 +130,9 @@ struct ImageGenView: View {
             }
         }.padding(12).background(Color.blue.opacity(0.03)).cornerRadius(12)
     }
+}
 
-// MARK: - 单张卡片
+// MARK: - 卡片
 
 struct ImageCardRowView: View {
     let card: ImageCard
@@ -192,24 +206,24 @@ struct ImageCardRowView: View {
         }
     }
     private var bgColor: Color {
-        if card.status == .failed||card.status == .timeout {return Color.red.opacity(0.08)}
+        if card.status == .failed || card.status == .timeout { return Color.red.opacity(0.08) }
         return Color(.systemGray5)
     }
     private var cardBackground: Color {
-        if card.status == .success {return Color.green.opacity(0.04)}
-        if card.status == .failed||card.status == .timeout {return Color.red.opacity(0.03)}
+        if card.status == .success { return Color.green.opacity(0.04) }
+        if card.status == .failed || card.status == .timeout { return Color.red.opacity(0.03) }
         return Color(.systemGray6)
     }
     private var borderColor: Color {
-        if card.status == .success {return Color.green.opacity(0.2)}
+        if card.status == .success { return Color.green.opacity(0.2) }
         return .clear
     }
 
     @ViewBuilder
     private var statusOverlay: some View {
-        if card.status == .generating||card.status == .polling||card.status == .taskAccepted {
+        if card.status == .generating || card.status == .polling || card.status == .taskAccepted {
             VStack(spacing:6){ProgressView().scaleEffect(0.8);Text(statusLabel).font(.caption2)}.foregroundColor(.secondary)
-        } else if card.status == .failed||card.status == .timeout {
+        } else if card.status == .failed || card.status == .timeout {
             VStack(spacing:4){Image(systemName:"exclamationmark.triangle").font(.title2);Text(statusLabel).font(.caption2);if let e=card.errorMessage{Text(e).font(.caption2).foregroundColor(.secondary).lineLimit(2).multilineTextAlignment(.center)}}.foregroundColor(statusColor).padding(4)
         } else if card.status == .idle {
             VStack(spacing:4){Image(systemName:"photo").font(.title2);Text("未生成").font(.caption)}.foregroundColor(.secondary)
