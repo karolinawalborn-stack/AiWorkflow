@@ -14,22 +14,15 @@ struct PromptGenView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     if let p = vm.project { ProgressHeader(title: p.name, step: 3, total: 4, tint: .orange) }
-                    toolbarSection
-                    promptsList
+                    self.toolbarSection
+                    self.promptsList
                 }.padding()
             }
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Button("下一歩：出图") { goNext = true }.buttonStyle(.borderedProminent).disabled(vm.nonEmptyPromptCount == 0)
-                    Spacer()
-                    if let m = vm.lastCopied { Text("已复制").font(.caption).foregroundColor(.green) }
-                }.padding()
-            }.background(Color(.systemBackground))
+            self.bottomBar
         }
         .navigationTitle("提示词").navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $goNext) { ImageGenView(projectID: projectID) }
-        .sheet(isPresented: $showBatchImport) { batchImportSheet }
+        .sheet(isPresented: $showBatchImport) { self.batchImportSheet }
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
     }
 
@@ -67,11 +60,22 @@ struct PromptGenView: View {
         }
     }
 
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+                Button("下一歩：出图") { goNext = true }.buttonStyle(.borderedProminent).disabled(vm.nonEmptyPromptCount == 0)
+                Spacer()
+                if let m = vm.lastCopied { Text("已复制").font(.caption).foregroundColor(.green) }
+            }.padding()
+        }.background(Color(.systemBackground))
+    }
+
     private var batchImportSheet: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text("批量导入提示词").font(.headline)
-                Text("每行一条，或空行分隔。支持「第N条」格式。").font(.caption).foregroundColor(.secondary)
+                Text("每行一条，或空行分隔。支持"第N条"格式。").font(.caption).foregroundColor(.secondary)
                 TextEditor(text: $batchText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 200).padding(8).background(Color(.systemGray6)).cornerRadius(8)
                 HStack(spacing: 12) {
                     Button("取消") { showBatchImport = false; batchText = "" }.buttonStyle(.bordered)
@@ -80,7 +84,6 @@ struct PromptGenView: View {
             }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
-}
 
 struct PromptSimpleRow: View {
     let text: String
