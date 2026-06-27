@@ -18,11 +18,37 @@ struct CopyEditingView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     ProgressHeader(title: vm.project?.name ?? "文案", step: 2, total: 4, tint: .purple)
-                    HStack { Image(systemName: "quote.opening").foregroundColor(.blue); Text(userTopic).font(.subheadline); Spacer() }
-                        .padding().background(Color.blue.opacity(0.08)).cornerRadius(10)
+                    topicBadge
 
-                    VStack(spacing: 8) {
-                        Button { print("🔵 [UI] 生成文案"); vm.generateCopy() } label: {
+                    actionButtonsSection
+                    cardsSection
+                    rawResponseSection
+                }.padding()
+            }
+            bottomBar
+        }
+        .navigationTitle("文案编辑").navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $goNext) {
+            if let p = vm.project { PromptGenView(projectID: p.id) }
+        }
+        .onAppear {
+            print("🔵 [UI] CopyEditingView projectID=\(projectID)")
+            if let p = store.project(id: projectID) {
+                vm.setup(store: store, textService: textService, project: p, userTopic: userTopic, extraRequirements: extraRequirements)
+            } else { alertMsg = "项目不存在"; showAlert = true }
+        }
+        .onChange(of: vm.errorMessage) { msg in if let m = msg, !m.isEmpty { alertMsg = m; showAlert = true } }
+        .alert("提示", isPresented: $showAlert) { Button("确定") { vm.errorMessage = nil } } message: { Text(alertMsg) }
+    }
+
+    private var topicBadge: some View {
+        HStack { Image(systemName: "quote.opening").foregroundColor(.blue); Text(userTopic).font(.subheadline); Spacer() }
+            .padding().background(Color.blue.opacity(0.08)).cornerRadius(10)
+    }
+
+    private var actionButtonsSection: some View {
+        VStack(spacing: 8) {
+            Button { print("🔵 [UI] 生成文案"); vm.generateCopy() } label: {
                             HStack {
                                 if vm.isLoading { ProgressView().tint(.white) }
                                 Image(systemName: "sparkles")
@@ -109,33 +135,16 @@ struct CopyEditingView: View {
                 }.padding()
             }
 
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Text("\(vm.nonEmptyCardCount)/\(vm.cards.count) 张已填写").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Button("下一步：生图提示词") {
-                        // 导航前确保 project 已持久化
-                        vm.saveProject()
-                        goNext = true
-                    }
-                    .font(.subheadline).buttonStyle(.borderedProminent)
-                    .disabled(vm.nonEmptyCardCount == 0)
-                }.padding()
-            }.background(Color(.systemBackground))
-        }
-        .navigationTitle("文案编辑").navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $goNext) {
-            if let p = vm.project { PromptGenView(projectID: p.id) }
-        }
-        .onAppear {
-            print("🔵 [UI] CopyEditingView projectID=\(projectID)")
-            if let p = store.project(id: projectID) {
-                vm.setup(store: store, textService: textService, project: p, userTopic: userTopic, extraRequirements: extraRequirements)
-            } else { alertMsg = "项目不存在"; showAlert = true }
-        }
-        .onChange(of: vm.errorMessage) { msg in if let m = msg, !m.isEmpty { alertMsg = m; showAlert = true } }
-        .alert("提示", isPresented: $showAlert) { Button("确定") { vm.errorMessage = nil } } message: { Text(alertMsg) }
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+                Text("\(vm.nonEmptyCardCount)/\(vm.cards.count) 张已填写").font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button("下一步：生图提示词") { vm.saveProject(); goNext = true }
+                    .font(.subheadline).buttonStyle(.borderedProminent).disabled(vm.nonEmptyCardCount == 0)
+            }.padding()
+        }.background(Color(.systemBackground))
     }
 }
 
