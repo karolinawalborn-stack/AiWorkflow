@@ -93,8 +93,10 @@ struct PromptGenView: View {
         .sheet(isPresented: $showBatchImport) {
             PromptBatchImportView(text: $batchText, onImport: { vm.batchImportPrompts($0); showBatchImport = false; batchText = "" }, onCancel: { showBatchImport = false; batchText = "" })
         }
-        .sheet(item: $editCardIndex) { idx in
-            PromptEditSheetView(vm: vm, cardIndex: idx, onDone: { editCardIndex = nil })
+        
+            }
+        .sheet(isPresented: ) {
+            PromptEditSheetView(vm: _vm.wrappedValue, cardIndex: editCardIndex, onDone: { showEditSheet = false })
         }
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
     }
