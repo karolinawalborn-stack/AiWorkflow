@@ -106,7 +106,7 @@ struct PromptGenToolbarView: View {
 }
 
 struct PromptGenCardsView: View {
-    @ObservedObject var vm: PromptViewModel
+    let vm: PromptViewModel
     var body: some View {
         if vm.prompts.isEmpty {
             VStack(spacing: 12) {
