@@ -34,18 +34,15 @@ struct PromptGenView: View {
                     // 卡片列表
                     if !vm.prompts.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
-                            ForEach(vm.prompts) { pr in
+                            ForEach(Array(vm.prompts.enumerated()), id: \.element.id) { idx, pr in
                                 PromptCardEditRow(
-                                    card: Binding(
-                                        get: { pr },
-                                        set: { updated in
-                                            if let idx = vm.prompts.firstIndex(where: { $0.id == pr.id }) {
-                                                vm.updatePrompt(at: idx, prompt: updated.promptText, description: "")
-                                            }
-                                        }
+                                    promptText: Binding(
+                                        get: { vm.prompts[idx].promptText },
+                                        set: { vm.updatePrompt(at: idx, prompt: $0, description: "") }
                                     ),
+                                    cardIndex: pr.cardIndex,
                                     isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
-                                    onCopy: { vm.copyPrompt(at: vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0) },
+                                    onCopy: { vm.copyPrompt(at: idx) },
                                     onRegenerate: { vm.regenerateSingle(at: pr.cardIndex) }
                                 )
                             }
@@ -93,7 +90,8 @@ struct PromptGenView: View {
 // MARK: - 可编辑提示词行
 
 struct PromptCardEditRow: View {
-    @Binding var card: PromptCard
+    @Binding var promptText: String
+    let cardIndex: Int
     let isGenerating: Bool
     let onCopy: () -> Void
     let onRegenerate: () -> Void
@@ -103,10 +101,10 @@ struct PromptCardEditRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("图\(card.cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4).background(statusColor).cornerRadius(6)
+                Text("图\(cardIndex+1)").font(.caption).fontWeight(.semibold).foregroundColor(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4).background(promptText.isEmpty ? Color.secondary : Color.green).cornerRadius(6)
                 Spacer()
-                if !card.promptText.isEmpty { Button(action: onCopy) { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain) }
+                if !promptText.isEmpty { Button(action: onCopy) { Image(systemName: "doc.on.doc").font(.caption) }.buttonStyle(.plain) }
             }
 
             if isGenerating {
@@ -118,28 +116,12 @@ struct PromptCardEditRow: View {
                     .padding(6)
                     .background(Color(.systemGray6))
                     .cornerRadius(6)
-                    .onChange(of: editText) { newVal in
-                        card.promptText = newVal
-                        if !newVal.isEmpty { card.status = .success }
-                    }
+                    .onChange(of: editText) { newVal in promptText = newVal }
             }
         }
-        .padding(12).background(cardBackground).cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(borderColor, lineWidth: isGenerating ? 1.5 : 0.5))
-        .onAppear { editText = card.promptText }
-        .onChange(of: card.promptText) { newVal in
-            if newVal != editText { editText = newVal }
-        }
-    }
-
-    private var statusColor: Color {
-        if !card.promptText.isEmpty { return .green }
-        return .secondary
-    }
-    private var cardBackground: Color {
-        !card.promptText.isEmpty ? Color.green.opacity(0.04) : Color(.systemGray6)
-    }
-    private var borderColor: Color {
-        isGenerating ? Color.orange.opacity(0.5) : Color.clear
+        .padding(12).background(promptText.isEmpty ? Color(.systemGray6) : Color.green.opacity(0.04)).cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isGenerating ? Color.orange.opacity(0.5) : Color.clear, lineWidth: isGenerating ? 1.5 : 0.5))
+        .onAppear { editText = promptText }
+        .onChange(of: promptText) { newVal in if newVal != editText { editText = newVal } }
     }
 }
