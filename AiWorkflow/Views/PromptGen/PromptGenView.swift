@@ -8,9 +8,8 @@ struct PromptGenView: View {
     @State private var showRawGlobal = false
     @State private var showBatchImport = false
     @State private var batchText: String = ""
+    @State private var editCardIndex: Int = 0
     @State private var showEditSheet = false
-    @State private var editingCardIdx: Int = 0
-    @State private var editText: String = ""
     let projectID: UUID
 
     var body: some View {
@@ -60,7 +59,7 @@ struct PromptGenView: View {
                                     isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
                                     onCopy: { vm.copyPrompt(at: vm.prompts.firstIndex(where: { $0.id == pr.id }) ?? 0) },
                                     onRegenerate: { vm.regenerateSingle(at: pr.cardIndex) },
-                                    onEdit: { editingCardIdx = pr.cardIndex; editText = pr.promptText; showEditSheet = true }
+                                    onEdit: { editCardIndex = pr.cardIndex; showEditSheet = true }
                                 )
                             }
                         }
@@ -94,17 +93,8 @@ struct PromptGenView: View {
         .sheet(isPresented: $showBatchImport) {
             PromptBatchImportView(text: $batchText, onImport: { vm.batchImportPrompts($0); showBatchImport = false; batchText = "" }, onCancel: { showBatchImport = false; batchText = "" })
         }
-        .sheet(isPresented: $showEditSheet) {
-            NavigationStack {
-                VStack(spacing: 16) {
-                    Text("编辑图\(editingCardIdx+1) 提示词").font(.headline)
-                    TextEditor(text: $editText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 200).padding(8).background(Color(.systemGray6)).cornerRadius(8)
-                    HStack(spacing: 12) {
-                        Button("取消") { showEditSheet = false }.buttonStyle(.bordered)
-                        Button("保存") { self.vm.updatePrompt(at: self.editingCardIdx, prompt: self.editText, description: ""); self.showEditSheet = false }.buttonStyle(.borderedProminent)
-                    }
-                }.padding()
-            }
+        .sheet(item: $editCardIndex) { idx in
+            PromptEditSheetView(vm: vm, cardIndex: idx, onDone: { editCardIndex = nil })
         }
         .onAppear { if let p = store.project(id: projectID) { vm.setup(store: store, textService: textService, project: p) } }
     }
