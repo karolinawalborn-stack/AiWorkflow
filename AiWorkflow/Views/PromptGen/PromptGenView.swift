@@ -59,8 +59,8 @@ struct PromptGenView: View {
                             text: pr.promptText,
                             index: pr.cardIndex,
                             isGenerating: vm.currentGeneratingIndex == pr.cardIndex,
-                            onEdit: { vm.updatePrompt(at: pr.cardIndex, prompt: $0, description: "") },
-                            onCopy: { vm.copyPrompt(at: pr.cardIndex) }
+                            onEdit: { self.vm.updatePrompt(at: pr.cardIndex, prompt: $0, description: "") },
+                            onCopy: { self.vm.copyPrompt(at: pr.cardIndex) }
                         )
                     }
                 }
