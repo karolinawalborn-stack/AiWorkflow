@@ -99,14 +99,16 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
 
             // 检查是否为异步任务
             if let taskID = parsed.taskID {
-                print("🌐 [Adapter] ⏳ 异步任务模式: taskID=\(taskID)")
+                let efsIds = Self.extractEFSIds(from: fullJSON)
+                print("🌐 [Adapter] ⏳ taskID=\(taskID) efsIds=\(efsIds)")
                 return [ImageGenerationResult(
                     imageData: nil,
                     revisedPrompt: parsed.revisedPrompt,
                     rawResponseText: fullJSON,
                     statusCode: statusCode,
                     contentType: ct,
-                    taskID: taskID
+                    taskID: taskID,
+                    efsIds: efsIds
                 )]
             }
 
@@ -171,5 +173,14 @@ final class InternalToolStationImageAdapter: AIImageServiceProtocol {
             statusCode: statusCode,
             contentType: ct
         )]
+    }
+
+    /// 从 JSON 响应中提取 efsIds
+    private static func extractEFSIds(from jsonStr: String) -> [String] {
+        guard let data = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let d = json["data"] as? [String: Any],
+              let efs = d["efsIds"] as? [String] else { return [] }
+        return efs
     }
 }

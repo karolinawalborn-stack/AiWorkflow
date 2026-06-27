@@ -261,8 +261,9 @@ struct ImageGenerationResult: Sendable {
     public private(set) var contentType: String?
     /// 异步任务 ID（如果接口返回任务模式）
     public private(set) var taskID: String?
+    public private(set) var efsIds: [String]
 
-    init(imageData: Data? = nil, imageURL: String? = nil, revisedPrompt: String? = nil, rawResponseText: String? = nil, statusCode: Int? = nil, contentType: String? = nil, taskID: String? = nil) {
+    init(imageData: Data? = nil, imageURL: String? = nil, revisedPrompt: String? = nil, rawResponseText: String? = nil, statusCode: Int? = nil, contentType: String? = nil, taskID: String? = nil, efsIds: [String] = []) {
         self.imageData = imageData
         self.imageURL = imageURL
         self.revisedPrompt = revisedPrompt
@@ -270,5 +271,6 @@ struct ImageGenerationResult: Sendable {
         self.statusCode = statusCode
         self.contentType = contentType
         self.taskID = taskID
+        self.efsIds = efsIds
     }
 }

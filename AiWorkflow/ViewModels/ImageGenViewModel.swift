@@ -112,14 +112,17 @@ final class ImageGenViewModel: ObservableObject {
 
             // 处理 task_id 或图片数据
             if let taskID = result.taskID {
-                print("\(tag) ⏳ taskID=\(taskID)")
+                let efs = result.efsIds
+                print("\(tag) ⏳ taskID=\(taskID) efs=\(efs)")
                 guard var p2 = project, index < p2.imageCards.count else { return }
                 p2.imageCards[index].status = .taskAccepted; p2.imageCards[index].taskId = taskID
+                p2.imageCards[index].efsIds = efs
                 p2.imageCards[index].rawSubmitResponse = result.rawResponseText ?? ""
                 p2.imageCards[index].errorMessage = "任务: \(taskID)"
                 p2.updatedAt = Date(); store?.upsert(p2); project = p2
                 currentGeneratingIndex = nil
-                startPolling(taskID: taskID, cardIndex: index)
+                if !efs.isEmpty { startEFSDownload(efsIds: efs, cardIndex: index, rawSubmit: result.rawResponseText ?? "") }
+                else { startPolling(taskID: taskID, cardIndex: index) }
                 return
             }
 
@@ -162,6 +165,42 @@ final class ImageGenViewModel: ObservableObject {
 
     // MARK: - 轮询（自动尝试 efsIds 下载）
 
+    private func startEFSDownload(efsIds: [String], cardIndex: Int, rawSubmit: String) {
+        pollingTask?.cancel()
+        let tag = "📷[\(cardIndex)]"; let base = AIProviderConfig.default.imageBaseURL.trimmingCharacters(in: .init(charactersIn: "/"))
+        print("\(tag) ⏳ efsIds=\(efsIds)")
+        if var p = project, cardIndex < p.imageCards.count {
+            p.imageCards[cardIndex].status = .polling; p.imageCards[cardIndex].errorMessage = "efs下载中..."
+            p.updatedAt = Date(); store?.upsert(p); project = p
+        }
+        pollingTask = Task { [weak self] in
+            guard let self = self else { return }
+            for efsId in efsIds {
+                for ep in self.efsPaths {
+                    let pp = ep.hasPrefix("/") ? ep : "/\(ep)"
+                    for urlStr in ["\(base)\(pp)/\(efsId)", "\(base)\(pp)?file_id=\(efsId)", "\(base)\(pp)?efsId=\(efsId)"] {
+                        guard let url = URL(string: urlStr) else { continue }
+                        print("\(tag) ⏳ efs URL: \(urlStr)")
+                        if let (d, _) = try? await URLSession.shared.data(for: .init(url: url, timeoutInterval: 15)), d.count > 200 {
+                            print("\(tag) ✅ efs 下载成功! \(d.count) bytes")
+                            await self.saveFromPolling(cardIndex, d, rawSubmit)
+                            return
+                        }
+                    }
+                }
+            }
+            print("\(tag) ⚠️ efs 直接下载失败, 降级到轮询...")
+            if var p = self.project, cardIndex < p.imageCards.count, let tid = p.imageCards[cardIndex].taskId {
+                self.startPolling(taskID: tid, cardIndex: cardIndex)
+            } else {
+                if var p = self.project, cardIndex < p.imageCards.count {
+                    p.imageCards[cardIndex].status = .failed; p.imageCards[cardIndex].errorMessage = "efs下载失败且无taskId"
+                    p.updatedAt = Date(); self.store?.upsert(p); self.project = p
+                }
+            }
+        }
+    }
+
     private func startPolling(taskID: String, cardIndex: Int) {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -178,6 +217,20 @@ final class ImageGenViewModel: ObservableObject {
             for attempt in 1...maxAttempts {
                 if Task.isCancelled { break }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if attempt % 5 == 1 {
+                    if var p0 = self.project, cardIndex < p0.imageCards.count, !p0.imageCards[cardIndex].efsIds.isEmpty {
+                        for efsId in p0.imageCards[cardIndex].efsIds {
+                            for ep in self.efsPaths {
+                                let pp = ep.hasPrefix("/") ? ep : "/\(ep)"
+                                for us in ["\(base)\(pp)/\(efsId)", "\(base)\(pp)?file_id=\(efsId)"] {
+                                    if let url = URL(string: us), let (d,_) = try? await URLSession.shared.data(for: .init(url: url, timeoutInterval: 10)), d.count > 200 {
+                                        await self.saveFromPolling(cardIndex, d, ""); return
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 print("\(tag) 🔄 \(attempt)/\(maxAttempts)")
 
                 // 先通过 efsIds 直接下载（如果已有）

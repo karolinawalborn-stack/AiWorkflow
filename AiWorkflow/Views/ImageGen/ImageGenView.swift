@@ -33,11 +33,9 @@ struct ImageGenView: View {
                         Button { vm.generateTestImage(at: 0) } label: {
                             HStack { Image(systemName: "ladybug"); Text("测试第1张").font(.caption) }.frame(maxWidth: .infinity)
                         }.buttonStyle(.bordered).tint(.orange).disabled(vm.isLoading)
-                        if vm.successCount > 0 {
-                            Button { vm.downloadAllToAlbum() } label: {
-                                HStack { Image(systemName: "square.and.arrow.down"); Text("下载到相册(\(vm.successCount))").font(.caption) }.frame(maxWidth: .infinity)
-                            }.buttonStyle(.bordered).tint(.green)
-                        }
+                        Button { vm.downloadAllToAlbum() } label: {
+                                HStack { Image(systemName: "square.and.arrow.down"); Text(vm.successCount > 0 ? "下载到相册(\(vm.successCount))" : "暂无可下载图片").font(.caption) }.frame(maxWidth: .infinity)
+                            }.buttonStyle(.bordered).tint(.green).disabled(vm.successCount == 0)
                     }
 
                     // ── 统计 ──
@@ -64,7 +62,7 @@ struct ImageGenView: View {
                 HStack {
                     Text("\(vm.successCount)/\(vm.imageCards.count) 张").font(.caption).foregroundColor(.secondary)
                     Spacer()
-                    if vm.successCount > 0 { Button("下载全部") { vm.downloadAllToAlbum() }.font(.caption).buttonStyle(.bordered).tint(.green).controlSize(.small) }
+                    Button("下载全部") { vm.downloadAllToAlbum() }.disabled(vm.successCount == 0).font(.caption).buttonStyle(.bordered).tint(.green).controlSize(.small) }
                 }.padding()
             }.background(Color(.systemBackground))
         }
